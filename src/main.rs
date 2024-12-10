@@ -1,59 +1,52 @@
 mod utils;
 
-use crate::utils::header::print_header_info;
-use crate::utils::header::process_header;
 use utils::normalize::normalize;
+use utils::wav::{WavFile, WavHeader};
 
 use rand::Rng;
 
 use std::fs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut data: Vec<u8> = fs::read("input.wav")?;
-    print_header_info(&data)?;
+    let bytes = fs::read("input.wav")?;
+    let mut wav_file = WavFile::from_bytes(bytes)?;
 
-    // match adjust_volume(&mut data, 2.0) {
-    //     Ok(_) => println!("Successfully adjusted volume"),
-    //     Err(e) => println!("Error: {}", e),
-    // }
-    // match reverse(&mut data) {
-    //     Ok(()) => println!("Sucessfully reversed audio"),
-    //     Err(e) => println!("Error: {}", e),
-    // }
+    println!("Number of channels: {}", wav_file.header.num_channels);
+    println!("Sample rate: {}", wav_file.header.sample_rate);
+    println!("Bits per sample: {}", wav_file.header.bits_per_sample);
 
-    delay(&mut data);
-    fs::write("output.wav", data)?;
+    match adjust_volume(&mut wav_file.audio_data, 0.5) {
+        Ok(()) => println!("Succesfully adjusted volume"),
+        Err(e) => println!("Error adjusting volume: {}", e),
+    }
+
+    let wav_bytes = wav_file.to_bytes();
+
+    fs::write("output.wav", wav_bytes)?;
+
     Ok(())
 }
 
-fn adjust_volume(data: &mut Vec<u8>, volume: f32) -> Result<(), &'static str> {
+fn adjust_volume(audio_data: &mut Vec<u8>, volume: f32) -> Result<(), &'static str> {
     if volume > 2.0 || volume <= 0.0 {
         return Err("Not a valid volume value. Try again.");
     }
 
-    let audio_start = process_header(data);
+    for chunk in audio_data.chunks_exact_mut(2) {
+        let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
 
-    let mut i = audio_start;
-    while i < data.len() - 1 {
-        // Convert two bytes to a 16-bit sample
-        let sample = i16::from_le_bytes([data[i], data[i + 1]]);
-
-        // Convert to float, adjust volume, and convert back to integer
         let adjusted = (sample as f32 * volume) as i16;
 
-        // Convert back to bytes
-        let adjusted_bytes = adjusted.to_le_bytes();
-        data[i] = adjusted_bytes[0];
-        data[i + 1] = adjusted_bytes[1];
-
-        i += 2;
+        let new_bytes = adjusted.to_le_bytes();
+        chunk[0] = new_bytes[0];
+        chunk[1] = new_bytes[1];
     }
 
     Ok(())
 }
 
 fn reverse(data: &mut Vec<u8>) -> Result<(), &'static str> {
-    let audio_start = process_header(data);
+    let audio_start = 44;
     let mut rev_i = data.len() - 2;
     let mut i = audio_start;
 
@@ -75,7 +68,7 @@ fn reverse(data: &mut Vec<u8>) -> Result<(), &'static str> {
 }
 
 fn duplicate(data: &mut Vec<u8>) -> Result<(), &'static str> {
-    let audio_start = process_header(data);
+    let audio_start = 44;
     let original = data.clone();
 
     let audio_size = original.len() - audio_start;
@@ -103,7 +96,7 @@ fn duplicate(data: &mut Vec<u8>) -> Result<(), &'static str> {
 }
 
 fn random_noise(data: &mut Vec<u8>) -> Result<(), &'static str> {
-    let audio_start = process_header(data);
+    let audio_start = 44;
 
     let noise_amount = 20000;
     let original = data[audio_start..].to_vec();
@@ -125,7 +118,7 @@ fn random_noise(data: &mut Vec<u8>) -> Result<(), &'static str> {
 }
 
 fn delay(data: &mut Vec<u8>) -> Result<(), &'static str> {
-    let audio_start = process_header(data);
+    let audio_start = 44;
     let offset = 50000;
 
     let mut original = data.clone();
