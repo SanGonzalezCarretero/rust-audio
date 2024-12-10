@@ -59,11 +59,13 @@ impl WavFile {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
-        // Write header
-        bytes.extend_from_slice(&self.header.chunk_id);
+        // Write RIFF header
+        bytes.extend_from_slice(&self.header.chunk_id); // "RIFF"
         bytes.extend_from_slice(&self.header.chunk_size.to_le_bytes());
-        bytes.extend_from_slice(&self.header.format);
-        bytes.extend_from_slice(&self.header.subchunk1_id);
+        bytes.extend_from_slice(&self.header.format); // "WAVE"
+
+        // Write fmt subchunk
+        bytes.extend_from_slice(&self.header.subchunk1_id); // "fmt "
         bytes.extend_from_slice(&self.header.subchunk1_size.to_le_bytes());
         bytes.extend_from_slice(&self.header.audio_format.to_le_bytes());
         bytes.extend_from_slice(&self.header.num_channels.to_le_bytes());
@@ -72,8 +74,10 @@ impl WavFile {
         bytes.extend_from_slice(&self.header.block_align.to_le_bytes());
         bytes.extend_from_slice(&self.header.bits_per_sample.to_le_bytes());
 
-        // Write audio data
-        bytes.extend(&self.audio_data);
+        // Write data subchunk
+        bytes.extend_from_slice(b"data"); // data chunk identifier
+        bytes.extend_from_slice(&(self.audio_data.len() as u32).to_le_bytes()); // size of data
+        bytes.extend(&self.audio_data); // actual audio data
 
         bytes
     }

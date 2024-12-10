@@ -11,10 +11,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bytes = fs::read("input.wav")?;
     let mut wav_file = WavFile::from_bytes(bytes)?;
 
-    println!("Number of channels: {}", wav_file.header.num_channels);
-    println!("Sample rate: {}", wav_file.header.sample_rate);
-    println!("Bits per sample: {}", wav_file.header.bits_per_sample);
-
     match adjust_volume(&mut wav_file.audio_data, 0.5) {
         Ok(()) => println!("Succesfully adjusted volume"),
         Err(e) => println!("Error adjusting volume: {}", e),
