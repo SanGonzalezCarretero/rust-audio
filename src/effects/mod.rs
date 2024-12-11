@@ -6,7 +6,7 @@ pub enum Effect {
     Reverse,
     Duplicate,
     RandomNoise,
-    Delay { ms: usize, amount: usize },
+    Delay { ms: usize, taps: usize },
     Tremolo,
     PitchOctaveUp,
 }
@@ -18,7 +18,7 @@ impl Effect {
             Effect::Reverse => reverse(audio_data),
             Effect::Duplicate => duplicate(audio_data),
             Effect::RandomNoise => random_noise(audio_data),
-            Effect::Delay { ms, amount } => delay(audio_data, *ms, *amount),
+            Effect::Delay { ms, taps } => delay(audio_data, *ms, *taps),
             Effect::Tremolo => tremolo(audio_data),
             Effect::PitchOctaveUp => pitch_octave_up(audio_data),
         }
@@ -103,30 +103,36 @@ fn random_noise(data: &mut Vec<u8>) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn delay(audio_data: &mut Vec<u8>, ms: usize, amount: usize) -> Result<(), &'static str> {
+fn delay(audio_data: &mut Vec<u8>, ms: usize, taps: usize) -> Result<(), &'static str> {
     const SAMPLE_RATE: usize = 44100;
     const BYTES_PER_SAMPLE: usize = 4;
     let offset: usize = (ms * SAMPLE_RATE) / 1000 * BYTES_PER_SAMPLE;
-    let mut delayed = vec![0u8; offset];
-    delayed.extend(audio_data.iter());
 
+    let original_data = audio_data.to_owned();
     let original_len = audio_data.len();
-    audio_data.resize(original_len + (offset * amount), 0);
+    audio_data.resize(original_len + (offset * taps), 0);
 
-    for i in (0..audio_data.len() - 1).step_by(2) {
-        if i + 1 >= delayed.len() {
-            break;
+    for tap_idx in 0..taps {
+        let tap = tap_idx + 1;
+        let mut delayed = vec![0u8; tap * offset];
+        delayed.extend(original_data.iter());
+
+        for i in (0..audio_data.len() - 1).step_by(2) {
+            if i + 1 >= delayed.len() {
+                break;
+            }
+
+            let original_sample = i16::from_le_bytes([audio_data[i], audio_data[i + 1]]);
+            let delayed_sample = i16::from_le_bytes([delayed[i], delayed[i + 1]]);
+
+            let new_volume = 0.5 / tap as f32;
+            let delayed_adjusted = (delayed_sample as f32 * new_volume) as i16;
+            let mixed_sample = original_sample.saturating_add(delayed_adjusted);
+            let mixed_bytes = mixed_sample.to_le_bytes();
+
+            audio_data[i] = mixed_bytes[0];
+            audio_data[i + 1] = mixed_bytes[1];
         }
-
-        let original_sample = i16::from_le_bytes([audio_data[i], audio_data[i + 1]]);
-        let delayed_sample = i16::from_le_bytes([delayed[i], delayed[i + 1]]);
-
-        let delayed_adjusted = (delayed_sample as f32 * 0.5) as i16;
-        let mixed_sample = original_sample.saturating_add(delayed_adjusted);
-        let mixed_bytes = mixed_sample.to_le_bytes();
-
-        audio_data[i] = mixed_bytes[0];
-        audio_data[i + 1] = mixed_bytes[1];
     }
     Ok(())
 }

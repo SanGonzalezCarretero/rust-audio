@@ -12,10 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // delay(&mut wav_file.audio_data, 600)?;
     // tremolo(&mut wav_file.audio_data)?;
-    wav_file.apply_effects(vec![Effect::Delay {
-        ms: 100,
-        amount: 100,
-    }])?;
+    wav_file.apply_effects(vec![Effect::Tremolo, Effect::Delay { ms: 30, taps: 50 }])?;
 
     let wav_bytes = wav_file.export_to_bytes();
     fs::write("output.wav", wav_bytes)?;
