@@ -21,6 +21,8 @@ pub struct WavFile {
     pub audio_data: Vec<u8>,
 }
 
+use crate::effects::Effect;
+
 impl WavFile {
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, Box<dyn std::error::Error>> {
         let mut cursor = Cursor::new(&bytes);
@@ -92,15 +94,25 @@ impl WavFile {
         self.resize();
         self.to_bytes()
     }
+
+    pub fn apply_effects(
+        &mut self,
+        effects: Vec<Effect>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for effect in effects {
+            effect.apply(&mut self.audio_data)?;
+        }
+        Ok(())
+    }
 }
 
-pub fn read_u32(cursor: &mut Cursor<&Vec<u8>>) -> Result<u32, std::io::Error> {
+fn read_u32(cursor: &mut Cursor<&Vec<u8>>) -> Result<u32, std::io::Error> {
     let mut buffer = [0; 4];
     cursor.read_exact(&mut buffer)?;
     Ok(u32::from_le_bytes(buffer))
 }
 
-pub fn read_u16(cursor: &mut Cursor<&Vec<u8>>) -> Result<u16, std::io::Error> {
+fn read_u16(cursor: &mut Cursor<&Vec<u8>>) -> Result<u16, std::io::Error> {
     let mut buffer = [0; 2];
     cursor.read_exact(&mut buffer)?;
     Ok(u16::from_le_bytes(buffer))
