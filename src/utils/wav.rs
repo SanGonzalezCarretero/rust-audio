@@ -56,7 +56,7 @@ impl WavFile {
         Ok(WavFile { header, audio_data })
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
+    fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
         // Write RIFF header
@@ -82,10 +82,15 @@ impl WavFile {
         bytes
     }
 
-    pub fn resize(&mut self) {
+    fn resize(&mut self) {
         let new_size = &self.audio_data.len() + 44 - 8;
 
         self.header.chunk_size = new_size as u32;
+    }
+
+    pub fn export_to_bytes(&mut self) -> Vec<u8> {
+        self.resize();
+        self.to_bytes()
     }
 }
 

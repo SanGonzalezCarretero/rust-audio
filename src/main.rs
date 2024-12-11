@@ -14,9 +14,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // tremolo(&mut wav_file.audio_data)?;
     pitch_octave_up(&mut wav_file.audio_data)?;
-    wav_file.resize();
-    let wav_bytes = wav_file.to_bytes();
 
+    let wav_bytes = wav_file.export_to_bytes();
     fs::write("output.wav", wav_bytes)?;
 
     Ok(())
