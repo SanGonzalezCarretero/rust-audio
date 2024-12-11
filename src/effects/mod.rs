@@ -9,6 +9,7 @@ pub enum Effect {
     Delay { ms: usize, taps: usize },
     Tremolo,
     PitchOctaveUp,
+    LinearFadeIn(usize),
 }
 
 impl Effect {
@@ -21,6 +22,7 @@ impl Effect {
             Effect::Delay { ms, taps } => delay(audio_data, *ms, *taps),
             Effect::Tremolo => tremolo(audio_data),
             Effect::PitchOctaveUp => pitch_octave_up(audio_data),
+            Effect::LinearFadeIn(duration) => linear_fade_in(audio_data, *duration),
         }
     }
 }
@@ -84,20 +86,20 @@ fn duplicate(audio_data: &mut Vec<u8>) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn random_noise(data: &mut Vec<u8>) -> Result<(), &'static str> {
+fn random_noise(audio_data: &mut Vec<u8>) -> Result<(), &'static str> {
     let audio_start = 44;
     let noise_amount = 20000;
-    let original = data[audio_start..].to_vec();
+    let original = audio_data[audio_start..].to_vec();
 
-    data.resize(original.len() + noise_amount, 0);
+    audio_data.resize(original.len() + noise_amount, 0);
 
     let mut i = audio_start;
     while i < original.len() {
         let noise = rand::thread_rng().gen_range(0..4);
-        data[i] = original[i];
-        data[i + 1] = original[i + 1];
-        data[i + 2] = noise;
-        data[i + 3] = noise;
+        audio_data[i] = original[i];
+        audio_data[i + 1] = original[i + 1];
+        audio_data[i + 2] = noise;
+        audio_data[i + 3] = noise;
         i += 4;
     }
     Ok(())
@@ -166,4 +168,30 @@ fn pitch_octave_up(audio_data: &mut Vec<u8>) -> Result<(), &'static str> {
     }
     audio_data.resize(audio_data.len() / 2, 0);
     Ok(())
+}
+
+fn linear_fade_in(audio_data: &mut Vec<u8>, ms: usize) -> Result<(), &'static str> {
+    let fade_in_samples = (ms * 44_100) / 1000;
+
+    for i in (0..fade_in_samples * 2).step_by(2) {
+        let mut new_sample = i16::from_le_bytes([audio_data[i], audio_data[i + 1]]);
+        let multiplier = (i / 2) as f32 / fade_in_samples as f32;
+
+        new_sample = (new_sample as f32 * multiplier) as i16;
+
+        let new_sample_bytes = new_sample.to_le_bytes();
+        audio_data[i] = new_sample_bytes[0];
+        audio_data[i + 1] = new_sample_bytes[1];
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_linear_fade_in() {
+    let mut audio_data = vec![0u8; 44100 * 2];
+    linear_fade_in(&mut audio_data, 1000).unwrap();
+
+    let expected = vec![0u8; 44100 * 2];
+    assert_eq!(audio_data, expected);
 }
