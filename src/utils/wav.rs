@@ -81,6 +81,12 @@ impl WavFile {
 
         bytes
     }
+
+    pub fn resize(&mut self) {
+        let new_size = &self.audio_data.len() + 44 - 8;
+
+        self.header.chunk_size = new_size as u32;
+    }
 }
 
 pub fn read_u32(cursor: &mut Cursor<&Vec<u8>>) -> Result<u32, std::io::Error> {
