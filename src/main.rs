@@ -1,8 +1,8 @@
 mod effects;
-mod utils;
+mod wav;
 
 use effects::*;
-use utils::wav::WavFile;
+use wav::WavFile;
 
 use std::fs;
 
