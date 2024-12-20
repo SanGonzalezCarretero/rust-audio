@@ -4,6 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-num = "0.4.3"
 rand = "0.8.5"
 rustfft = "6.2.0"
