@@ -9,7 +9,7 @@ use std::fs;
 use wav::WavFile;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let bytes = fs::read("guitar.wav")?;
+    let bytes = fs::read("hora.wav")?;
     let mut wav_file = WavFile::from_bytes(bytes)?;
 
     // The processor calls FFT and IFFT libraries in order to perform frequency manipulation
@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // We can manipulate this spectrum and feed it back to the IFFT (inverse FFT) and get the samples
     let modified_samples =
-        processor.apply_frequency_domain_effect(&samples, FrequencyEffect::PitchShift(100.0));
+        processor.apply_frequency_domain_effect(&samples, FrequencyEffect::LowPassFilter(5000.0));
 
     // Update file with modified samples
     wav_file.from_f64_samples(&modified_samples);
