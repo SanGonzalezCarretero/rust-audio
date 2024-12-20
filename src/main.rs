@@ -1,22 +1,30 @@
-mod analysis;
 mod effects;
+mod processor;
 mod wav;
-
-use analysis::discrete_fourier_transform;
+use crate::effects::Effect;
+use crate::processor::FrequencyEffect;
+use crate::processor::Processor;
+use rustfft::{num_complex::Complex64, FftPlanner};
+use std::fs;
 use wav::WavFile;
 
-use std::fs;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let bytes = fs::read("tone.wav")?;
+    let bytes = fs::read("guitar.wav")?;
     let mut wav_file = WavFile::from_bytes(bytes)?;
 
-    // wav_file.apply_effects(vec![Effect::Tremolo, Effect::Delay { ms: 30, taps: 50 }])?;
+    // The processor calls FFT and IFFT libraries in order to perform frequency manipulation
+    let mut processor = Processor::new(44100);
 
-    discrete_fourier_transform(&mut wav_file.audio_data);
+    // We feed the samples to the FFT and it creates a spectrum.
+    let samples = wav_file.to_f64_samples();
 
-    // let wav_bytes = wav_file.export_to_bytes();
-    // fs::write("output.wav", wav_bytes)?;
+    // We can manipulate this spectrum and feed it back to the IFFT (inverse FFT) and get the samples
+    let modified_samples =
+        processor.apply_frequency_domain_effect(&samples, FrequencyEffect::PitchShift(100.0));
 
+    // Update file with modified samples
+    wav_file.from_f64_samples(&modified_samples);
+
+    fs::write("output.wav", wav_file.export_to_bytes())?;
     Ok(())
 }

@@ -84,6 +84,32 @@ impl WavFile {
         bytes
     }
 
+    pub fn to_f64_samples(&self) -> Vec<f64> {
+        let mut samples = Vec::with_capacity(self.audio_data.len() / 2);
+
+        for i in (0..self.audio_data.len()).step_by(2) {
+            if i + 1 >= self.audio_data.len() {
+                break;
+            }
+
+            let sample = i16::from_le_bytes([self.audio_data[i], self.audio_data[i + 1]]);
+
+            samples.push(sample as f64);
+        }
+
+        samples
+    }
+
+    pub fn from_f64_samples(&mut self, samples: &[f64]) {
+        let mut new_audio_data = Vec::with_capacity(samples.len() * 2);
+        for &sample in samples {
+            let sample_i16 = (sample.round() as i16).clamp(i16::MIN, i16::MAX);
+            new_audio_data.extend_from_slice(&sample_i16.to_le_bytes());
+        }
+        self.audio_data = new_audio_data;
+        self.resize();
+    }
+
     fn resize(&mut self) {
         let new_size = &self.audio_data.len() + 44 - 8;
 
