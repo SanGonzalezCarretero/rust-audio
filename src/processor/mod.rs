@@ -71,22 +71,6 @@ impl Processor {
         buffer.iter().map(|x| x.re).collect()
     }
 
-    fn pitch_shift(&self, buffer: &mut Vec<Complex64>, shift_amount: f64) {
-        let mut modified = buffer.clone();
-        for i in 0..buffer.len() / 2 {
-            let new_i = ((i as f64 * self.sample_rate as f64 / buffer.len() as f64 + shift_amount)
-                * buffer.len() as f64
-                / self.sample_rate as f64) as usize;
-            if new_i < buffer.len() / 2 {
-                modified[new_i] = buffer[i];
-                if i != 0 && new_i != buffer.len() / 2 {
-                    modified[buffer.len() - new_i] = buffer[buffer.len() - i].conj();
-                }
-            }
-        }
-        *buffer = modified;
-    }
-
     fn log(&self, buffer: &mut Vec<Complex64>) {
         for i in 0..buffer.len() / 2 {
             // Which frequency this bin represents:
