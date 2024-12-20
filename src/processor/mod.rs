@@ -10,7 +10,6 @@ pub struct Processor {
 }
 
 pub enum FrequencyEffect {
-    PitchShift(f64),
     Log(),
     LowPassFilter(f64),
 }
@@ -40,7 +39,6 @@ impl Processor {
         self.forward_fft(&mut buffer);
 
         match effect {
-            FrequencyEffect::PitchShift(amount) => self.pitch_shift(&mut buffer, amount),
             FrequencyEffect::Log() => self.log(&mut buffer),
             FrequencyEffect::LowPassFilter(cutoff_freq) => {
                 self.low_pass_filter(&mut buffer, cutoff_freq)
