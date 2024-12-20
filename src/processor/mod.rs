@@ -1,8 +1,6 @@
 use crate::effects::Effect;
 use rustfft::num_complex::Complex64;
 use rustfft::FftPlanner;
-use std::f64::consts::PI;
-use std::io::BufReader;
 
 pub struct Processor {
     fft_planner: FftPlanner<f64>,
