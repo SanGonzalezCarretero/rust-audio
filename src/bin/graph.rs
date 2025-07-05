@@ -14,7 +14,7 @@ fn normalize_samples(samples: &[f64]) -> Vec<(f32, f32)> {
     samples
         .iter()
         .enumerate()
-        .map(|(i, &s)| (i as f32, (s / i16::MAX as f64) as f32))
+        .map(|(i, &s)| (i as f32, s as f32))
         .collect()
 }
 
