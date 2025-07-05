@@ -7,5 +7,5 @@
 This will create a graph of the audio files in the `src/bin/graph.rs` file.
 
 ```bash
-cargo run --bin graph
+cargo run --bin graph tone.wav output.wav combined.png
 ```

@@ -1,5 +1,6 @@
 use plotters::{coord::Shift, prelude::*};
 use rust_audio::wav::WavFile;
+use std::env;
 use std::fs;
 
 fn get_samples(file_name: &str) -> Result<Vec<f64>, Box<dyn std::error::Error>> {
@@ -55,11 +56,36 @@ fn create_combined_graph(
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let tone_samples = get_samples("tone.wav")?;
-    let output_samples = get_samples("output.wav")?;
+fn print_usage() {
+    println!("Usage: cargo run --bin graph <tone_file.wav> <output_file.wav> [output_image.png]");
+    println!("  tone_file.wav: Path to the first WAV file to compare");
+    println!("  output_file.wav: Path to the second WAV file to compare");
+    println!("  output_image.png: Optional output image file (default: combined.png)");
+}
 
-    create_combined_graph(tone_samples, output_samples, "combined.png")?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 3 {
+        println!("Error: Missing required arguments");
+        print_usage();
+        std::process::exit(1);
+    }
+
+    let tone_file = &args[1];
+    let output_file = &args[2];
+    let output_image = args.get(3).map(|s| s.as_str()).unwrap_or("combined.png");
+
+    println!("Reading tone file: {}", tone_file);
+    let tone_samples = get_samples(tone_file)?;
+
+    println!("Reading output file: {}", output_file);
+    let output_samples = get_samples(output_file)?;
+
+    println!("Creating combined graph: {}", output_image);
+    create_combined_graph(tone_samples, output_samples, output_image)?;
+
+    println!("Graph saved successfully!");
 
     Ok(())
 }
