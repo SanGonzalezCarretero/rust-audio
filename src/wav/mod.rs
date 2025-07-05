@@ -52,7 +52,33 @@ impl WavFile {
         header.block_align = read_u16(&mut cursor)?;
         header.bits_per_sample = read_u16(&mut cursor)?;
 
-        let position = cursor.position() as usize;
+        // Search for the data chunk
+        let mut data_chunk_found = false;
+        let mut position = cursor.position() as usize;
+
+        while position + 8 < bytes.len() {
+            let chunk_id = &bytes[position..position + 4];
+            let chunk_size = u32::from_le_bytes([
+                bytes[position + 4],
+                bytes[position + 5],
+                bytes[position + 6],
+                bytes[position + 7],
+            ]);
+
+            if chunk_id == b"data" {
+                position += 8; // Skip "data" + size
+                data_chunk_found = true;
+                break;
+            }
+
+            // Skip this chunk and move to the next one
+            position += 8 + chunk_size as usize;
+        }
+
+        if !data_chunk_found {
+            return Err("Data chunk not found".into());
+        }
+
         let audio_data = bytes[position..].to_vec();
 
         Ok(WavFile { header, audio_data })
