@@ -4,7 +4,7 @@ use rustfft::FftPlanner;
 
 pub struct Processor {
     fft_planner: FftPlanner<f64>,
-    sample_rate: usize,
+    sample_rate: u32,
 }
 
 pub enum FrequencyEffect {
@@ -13,19 +13,20 @@ pub enum FrequencyEffect {
 }
 
 impl Processor {
-    pub fn new(sample_rate: usize) -> Self {
+    pub fn new(sample_rate: u32) -> Self {
         Self {
             sample_rate,
             fft_planner: FftPlanner::new(),
         }
     }
 
+    // Updated to work with samples instead of raw audio data
     pub fn apply_time_domain_effect(
         &self,
-        audio_data: &mut Vec<u8>,
+        samples: &mut Vec<f64>,
         effect: Effect,
     ) -> Result<(), &'static str> {
-        effect.apply(audio_data)
+        effect.apply(samples, self.sample_rate)
     }
 
     pub fn apply_frequency_domain_effect(
@@ -71,11 +72,9 @@ impl Processor {
         for i in 0..buffer.len() / 2 {
             // Which frequency this bin represents:
             let frequency = i as f64 * self.sample_rate as f64 / buffer.len() as f64;
-
             // From these we can get:
             let magnitude = buffer[i].norm(); // Amplitude of this frequency
             let phase = buffer[i].arg(); // Phase of this frequency
-
             println!(
                 "Bin {}: Frequency = {:.1} Hz, Magnitude = {:.2}, Phase = {:.2} radians",
                 i, frequency, magnitude, phase
@@ -88,11 +87,9 @@ impl Processor {
         F: FnMut(usize, f64) -> f64,
     {
         let len = buffer.len();
-
         for i in 1..len / 2 {
             let frequency = i as f64 * self.sample_rate as f64 / len as f64;
             let factor = operation(i, frequency);
-
             buffer[i] *= factor;
             buffer[len - i] *= factor;
         }
