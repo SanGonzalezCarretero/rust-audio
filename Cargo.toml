@@ -1,8 +1,9 @@
 [package]
-name = "rust-audoi"
+name = "rust-audio"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 rand = "0.8.5"
 rustfft = "6.2.0"
+plotters = "0.3.3"
