@@ -93,8 +93,8 @@ impl WavFile {
             }
 
             let sample = i16::from_le_bytes([self.audio_data[i], self.audio_data[i + 1]]);
-
-            samples.push(sample as f64);
+            // Normalize to -1.0 to 1.0 range
+            samples.push(sample as f64 / i16::MAX as f64);
         }
 
         samples
@@ -102,10 +102,14 @@ impl WavFile {
 
     pub fn from_f64_samples(&mut self, samples: &[f64]) {
         let mut new_audio_data = Vec::with_capacity(samples.len() * 2);
+
         for &sample in samples {
-            let sample_i16 = (sample.round() as i16).clamp(i16::MIN, i16::MAX);
+            // Clamp to prevent distortion, then scale back to i16 range
+            let clamped = sample.clamp(-1.0, 1.0);
+            let sample_i16 = (clamped * i16::MAX as f64).round() as i16;
             new_audio_data.extend_from_slice(&sample_i16.to_le_bytes());
         }
+
         self.audio_data = new_audio_data;
         self.resize();
     }
@@ -125,9 +129,14 @@ impl WavFile {
         &mut self,
         effects: Vec<Effect>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut samples = self.to_f64_samples();
+
         for effect in effects {
-            effect.apply(&mut self.audio_data)?;
+            effect.apply(&mut samples, self.header.sample_rate)?;
         }
+
+        self.from_f64_samples(&samples);
+
         Ok(())
     }
 }

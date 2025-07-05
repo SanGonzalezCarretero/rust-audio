@@ -12,158 +12,104 @@ pub enum Effect {
 }
 
 impl Effect {
-    pub fn apply(&self, audio_data: &mut Vec<u8>) -> Result<(), &'static str> {
+    pub fn apply(&self, samples: &mut Vec<f64>, sample_rate: u32) -> Result<(), &'static str> {
         match self {
-            Effect::AdjustVolume(volume) => adjust_volume(audio_data, *volume),
-            Effect::Reverse => reverse(audio_data),
-            Effect::Duplicate => duplicate(audio_data),
-            Effect::RandomNoise => random_noise(audio_data),
-            Effect::Delay { ms, taps } => delay(audio_data, *ms, *taps),
-            Effect::Tremolo => tremolo(audio_data),
-            Effect::PitchOctaveUp => pitch_octave_up(audio_data),
+            Effect::AdjustVolume(volume) => adjust_volume(samples, *volume),
+            Effect::Reverse => reverse(samples),
+            Effect::Duplicate => duplicate(samples),
+            Effect::RandomNoise => random_noise(samples),
+            Effect::Delay { ms, taps } => delay(samples, *ms, *taps, sample_rate),
+            Effect::Tremolo => tremolo(samples, sample_rate),
+            Effect::PitchOctaveUp => pitch_octave_up(samples),
         }
     }
 }
 
-fn adjust_volume(audio_data: &mut Vec<u8>, volume: f32) -> Result<(), &'static str> {
+fn adjust_volume(samples: &mut Vec<f64>, volume: f32) -> Result<(), &'static str> {
     if volume > 2.0 || volume <= 0.0 {
         return Err("Not a valid volume value. Try again.");
     }
 
-    for chunk in audio_data.chunks_exact_mut(2) {
-        let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
-        let adjusted = (sample as f32 * volume) as i16;
-        let new_bytes = adjusted.to_le_bytes();
-        chunk[0] = new_bytes[0];
-        chunk[1] = new_bytes[1];
+    for sample in samples.iter_mut() {
+        *sample *= volume as f64;
+        *sample = sample.clamp(-1.0, 1.0); // Prevent clipping
     }
     Ok(())
 }
 
-fn reverse(audio_data: &mut Vec<u8>) -> Result<(), &'static str> {
-    let mut rev_i = audio_data.len() - 2;
-    let mut i = 0;
+fn reverse(samples: &mut Vec<f64>) -> Result<(), &'static str> {
+    samples.reverse();
+    Ok(())
+}
 
-    while i < rev_i {
-        let temp1 = audio_data[i];
-        let temp2 = audio_data[i + 1];
+fn duplicate(samples: &mut Vec<f64>) -> Result<(), &'static str> {
+    let original = samples.clone();
+    samples.extend(original);
+    Ok(())
+}
 
-        audio_data[i] = audio_data[rev_i];
-        audio_data[i + 1] = audio_data[rev_i + 1];
+fn random_noise(samples: &mut Vec<f64>) -> Result<(), &'static str> {
+    let mut rng = rand::thread_rng();
 
-        audio_data[rev_i] = temp1;
-        audio_data[rev_i + 1] = temp2;
-
-        rev_i -= 2;
-        i += 2;
+    for sample in samples.iter_mut() {
+        // Add random noise with small amplitude
+        let noise = rng.gen_range(-0.1..0.1);
+        *sample += noise;
+        *sample = sample.clamp(-1.0, 1.0);
     }
     Ok(())
 }
 
-fn duplicate(audio_data: &mut Vec<u8>) -> Result<(), &'static str> {
-    let audio_start = 44;
-    let original = audio_data.clone();
-    let audio_size = original.len() - audio_start;
-    let new_total_size = (original.len() + audio_size - 8) as u32;
+fn delay(
+    samples: &mut Vec<f64>,
+    ms: usize,
+    taps: usize,
+    sample_rate: u32,
+) -> Result<(), &'static str> {
+    let delay_samples = (ms * sample_rate as usize) / 1000;
+    let original = samples.clone();
 
-    audio_data[4..8].copy_from_slice(&new_total_size.to_le_bytes());
-
-    let new_audio_size = (audio_size * 2) as u32;
-    audio_data[audio_start - 4..audio_start].copy_from_slice(&new_audio_size.to_le_bytes());
-
-    audio_data.resize(audio_data.len() * 2, 0);
-
-    let mut i = audio_start;
-    while i < original.len() - 1 {
-        audio_data[i * 2 - audio_start] = original[i];
-        audio_data[i * 2 + 1 - audio_start] = original[i + 1];
-        audio_data[i * 2 + 2 - audio_start] = original[i];
-        audio_data[i * 2 + 3 - audio_start] = original[i + 1];
-        i += 2;
-    }
-    Ok(())
-}
-
-fn random_noise(data: &mut Vec<u8>) -> Result<(), &'static str> {
-    let audio_start = 44;
-    let noise_amount = 20000;
-    let original = data[audio_start..].to_vec();
-
-    data.resize(original.len() + noise_amount, 0);
-
-    let mut i = audio_start;
-    while i < original.len() {
-        let noise = rand::thread_rng().gen_range(0..4);
-        data[i] = original[i];
-        data[i + 1] = original[i + 1];
-        data[i + 2] = noise;
-        data[i + 3] = noise;
-        i += 4;
-    }
-    Ok(())
-}
-
-fn delay(audio_data: &mut Vec<u8>, ms: usize, taps: usize) -> Result<(), &'static str> {
-    const SAMPLE_RATE: usize = 44100;
-    const BYTES_PER_SAMPLE: usize = 4;
-    let offset: usize = (ms * SAMPLE_RATE) / 1000 * BYTES_PER_SAMPLE;
-
-    let original_data = audio_data.to_owned();
-    let original_len = audio_data.len();
-    audio_data.resize(original_len + (offset * taps), 0);
+    // Extend the audio to accommodate the delay
+    samples.resize(samples.len() + delay_samples * taps, 0.0);
 
     for tap_idx in 0..taps {
         let tap = tap_idx + 1;
-        let mut delayed = vec![0u8; tap * offset];
-        delayed.extend(original_data.iter());
+        let delay_offset = delay_samples * tap;
+        let feedback_gain = 0.5 / tap as f64;
 
-        for i in (0..audio_data.len() - 1).step_by(2) {
-            if i + 1 >= delayed.len() {
-                break;
+        for (i, &original_sample) in original.iter().enumerate() {
+            let delayed_index = i + delay_offset;
+            if delayed_index < samples.len() {
+                samples[delayed_index] += original_sample * feedback_gain;
+                // Prevent clipping
+                samples[delayed_index] = samples[delayed_index].clamp(-1.0, 1.0);
             }
-
-            let original_sample = i16::from_le_bytes([audio_data[i], audio_data[i + 1]]);
-            let delayed_sample = i16::from_le_bytes([delayed[i], delayed[i + 1]]);
-
-            let new_volume = 0.5 / tap as f32;
-            let delayed_adjusted = (delayed_sample as f32 * new_volume) as i16;
-            let mixed_sample = original_sample.saturating_add(delayed_adjusted);
-            let mixed_bytes = mixed_sample.to_le_bytes();
-
-            audio_data[i] = mixed_bytes[0];
-            audio_data[i + 1] = mixed_bytes[1];
         }
     }
     Ok(())
 }
 
-fn tremolo(audio_data: &mut Vec<u8>) -> Result<(), &'static str> {
-    const SAMPLE_RATE: f32 = 44_100.0;
-    const FREQUENCY: f32 = 8.0;
-    const DEPTH: f32 = 0.3;
+fn tremolo(samples: &mut Vec<f64>, sample_rate: u32) -> Result<(), &'static str> {
+    const FREQUENCY: f64 = 8.0; // Tremolo frequency in Hz
+    const DEPTH: f64 = 0.3; // Tremolo depth (0.0 to 1.0)
 
-    for i in (0..audio_data.len() - 1).step_by(2) {
-        let sample = i16::from_le_bytes([audio_data[i], audio_data[i + 1]]);
-        let angle = (i as f32 * FREQUENCY * 2.0 * std::f32::consts::PI) / SAMPLE_RATE;
+    for (i, sample) in samples.iter_mut().enumerate() {
+        let time = i as f64 / sample_rate as f64;
+        let angle = 2.0 * std::f64::consts::PI * FREQUENCY * time;
         let mod_factor = 1.0 - (DEPTH * (0.5 + 0.5 * angle.sin()));
-        let new_sample = (sample as f32 * mod_factor) as i16;
-        let new_sample_bytes = new_sample.to_le_bytes();
-
-        audio_data[i] = new_sample_bytes[0];
-        audio_data[i + 1] = new_sample_bytes[1];
+        *sample *= mod_factor;
     }
     Ok(())
 }
 
-fn pitch_octave_up(audio_data: &mut Vec<u8>) -> Result<(), &'static str> {
-    let mut j = 0;
-    for i in (0..audio_data.len() - 1).step_by(4) {
-        let sample = i16::from_le_bytes([audio_data[i], audio_data[i + 1]]);
-        let sample_bytes = sample.to_le_bytes();
-        audio_data[j] = sample_bytes[0];
-        audio_data[j + 1] = sample_bytes[1];
-        j += 2;
+fn pitch_octave_up(samples: &mut Vec<f64>) -> Result<(), &'static str> {
+    // Simple pitch shifting by taking every other sample
+    let mut new_samples = Vec::with_capacity(samples.len() / 2);
+
+    for i in (0..samples.len()).step_by(2) {
+        new_samples.push(samples[i]);
     }
-    audio_data.resize(audio_data.len() / 2, 0);
+
+    *samples = new_samples;
     Ok(())
 }

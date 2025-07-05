@@ -10,24 +10,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bytes = fs::read("guitar.wav")?;
     let mut wav_file = WavFile::from_bytes(bytes)?;
 
-    // The processor calls FFT and IFFT libraries in order to perform frequency manipulation
-    let mut processor = Processor::new(44100);
+    let mut samples = wav_file.to_f64_samples();
 
-    processor.apply_time_domain_effect(&mut wav_file.audio_data, effects::Effect::Tremolo)?;
-    processor.apply_time_domain_effect(
-        &mut wav_file.audio_data,
-        effects::Effect::Delay { ms: 1000, taps: 5 },
-    )?;
+    // The processor calls FFT and IFFT libraries in order to perform frequency manipulation
+    let processor = Processor::new(44100);
+
+    processor.apply_time_domain_effect(&mut samples, effects::Effect::Tremolo)?;
+    processor
+        .apply_time_domain_effect(&mut samples, effects::Effect::Delay { ms: 1000, taps: 5 })?;
 
     // We feed the samples to the FFT and it creates a spectrum.
-    let samples = wav_file.to_f64_samples();
+    // let samples = wav_file.to_f64_samples();
 
-    // We can manipulate this spectrum and feed it back to the IFFT (inverse FFT) and get the samples
-    let modified_samples =
-        processor.apply_frequency_domain_effect(&samples, FrequencyEffect::LowPassFilter(1000.0));
+    // // We can manipulate this spectrum and feed it back to the IFFT (inverse FFT) and get the samples
+    // let modified_samples =
+    //     processor.apply_frequency_domain_effect(&samples, FrequencyEffect::LowPassFilter(1000.0));
 
-    // Update file with modified samples
-    wav_file.from_f64_samples(&modified_samples);
+    // // Update file with modified samples
+    // wav_file.from_f64_samples(&modified_samples);
+
+    wav_file.from_f64_samples(&samples);
 
     fs::write("output.wav", wav_file.export_to_bytes())?;
     Ok(())
