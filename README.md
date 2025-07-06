@@ -12,11 +12,13 @@ An audio processing library written in Rust.
 ### Basic Audio Processing
 
 ```rust
-use std::fs;
-use crate::wav::WavFile;
-use crate::processor::Processor;
-use crate::effects::Effect;
+mod effects;
+mod processor;
+mod wav;
 use crate::processor::FrequencyEffect;
+use crate::processor::Processor;
+use std::fs;
+use wav::WavFile;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Load your WAV file
@@ -28,14 +30,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut processor = Processor::new(wav_file.header.sample_rate);
 
     // 3. Apply time domain effects
-    processor.apply_time_domain_effect(&mut samples, Effect::Tremolo)?;
-    processor.apply_time_domain_effect(&mut samples, Effect::LargeReverb)?;
+    processor.apply_time_domain_effect(&mut samples, effects::Effect::Tremolo)?;
+    processor.apply_time_domain_effect(&mut samples, effects::Effect::LargeReverb)?;
 
     // 4. Apply frequency domain effects
-    let filtered_samples = processor.apply_frequency_domain_effect(
-        &samples,
-        FrequencyEffect::LowPassFilter(1000.0)
-    );
+    let filtered_samples =
+        processor.apply_frequency_domain_effect(&samples, FrequencyEffect::LowPassFilter(1000.0));
 
     // 5. Save the result
     wav_file.from_f64_samples(&filtered_samples);
