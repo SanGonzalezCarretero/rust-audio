@@ -24,6 +24,25 @@ pub struct WavFile {
 use crate::effects::Effect;
 
 impl WavFile {
+    pub fn new(sample_rate: u32, num_channels: u16) -> Self {
+        WavFile {
+            header: WavHeader {
+                chunk_id: *b"RIFF",
+                chunk_size: 0,
+                format: *b"WAVE",
+                subchunk1_id: *b"fmt ",
+                subchunk1_size: 16,
+                audio_format: 1,
+                num_channels,
+                sample_rate,
+                byte_rate: sample_rate * num_channels as u32 * 2,
+                block_align: num_channels * 2,
+                bits_per_sample: 16,
+            },
+            audio_data: Vec::new(),
+        }
+    }
+
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, Box<dyn std::error::Error>> {
         let mut cursor = Cursor::new(&bytes);
         let mut header = WavHeader {
