@@ -1,6 +1,6 @@
 use rand::Rng;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Effect {
     AdjustVolume(f32),
     Reverse,
@@ -15,6 +15,22 @@ pub enum Effect {
 }
 
 impl Effect {
+    pub fn all_effects() -> Vec<(String, Effect)> {
+        vec![
+            ("Adjust Volume (0.5)".to_string(), Effect::AdjustVolume(0.5)),
+            ("Reverse".to_string(), Effect::Reverse),
+            ("Duplicate".to_string(), Effect::Duplicate),
+            ("Random Noise".to_string(), Effect::RandomNoise),
+            ("Delay (500ms, 3 taps)".to_string(), Effect::Delay { ms: 500, taps: 3 }),
+            ("Tremolo".to_string(), Effect::Tremolo),
+            ("Pitch Octave Up".to_string(), Effect::PitchOctaveUp),
+            ("Large Reverb".to_string(), Effect::LargeReverb),
+            ("Tape Saturation".to_string(), Effect::TapeSaturation),
+            ("Pan Left (75%)".to_string(), Effect::Pan('L', 75)),
+            ("Pan Right (75%)".to_string(), Effect::Pan('R', 75)),
+        ]
+    }
+
     pub fn apply(&self, samples: &mut Vec<f64>, sample_rate: u32) -> Result<(), &'static str> {
         match self {
             Effect::AdjustVolume(volume) => adjust_volume(samples, *volume),
