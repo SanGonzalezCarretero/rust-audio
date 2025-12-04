@@ -68,7 +68,7 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
             let selected_effects = app.selected_effects.clone();
 
             app.handle = Some(thread::spawn(move || {
-                match crate::input::record_input_device(duration) {
+                match crate::input::record_and_save_input_device(duration) {
                     Ok(mut wav_file) => {
                         // Apply FX 
                         if !selected_effects.is_empty() {

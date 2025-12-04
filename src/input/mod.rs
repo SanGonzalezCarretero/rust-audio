@@ -1,27 +1,23 @@
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use crate::device::AudioDevice;
+use crate::wav::WavFile;
+use cpal::traits::{DeviceTrait, StreamTrait};
 use std::sync::{Arc, Mutex};
-use crate::{wav::WavFile};
 
-pub fn record_input_device(duration_secs: u64) -> Result<WavFile, Box<dyn std::error::Error>> {
-    let host = cpal::default_host();
-    let input_device = host
-        .default_input_device()
-        .expect("No input device available");
+pub fn record_and_save_input_device(
+    duration_secs: u64,
+) -> Result<WavFile, Box<dyn std::error::Error>> {
+    let audio_device = AudioDevice::default_input()?;
 
-    let config = input_device
-        .default_input_config()
-        .expect("Failed to get default input config");
-    
-    let sample_rate = config.sample_rate().0;
-    let channels = config.channels() as u16;
-    
     let recorded_samples = Arc::new(Mutex::new(Vec::new()));
     let recorded_samples_clone = recorded_samples.clone();
 
-    let stream = input_device.build_input_stream(
-        &config.into(),
-        move |data: &[f32], info: &cpal::InputCallbackInfo| {
-            recorded_samples_clone.lock().unwrap().extend_from_slice(data);
+    let stream = audio_device.device.build_input_stream(
+        &audio_device.config,
+        move |data: &[f32], _info: &cpal::InputCallbackInfo| {
+            recorded_samples_clone
+                .lock()
+                .unwrap()
+                .extend_from_slice(data);
         },
         move |err| {
             eprintln!("Stream error: {}", err);
@@ -29,15 +25,46 @@ pub fn record_input_device(duration_secs: u64) -> Result<WavFile, Box<dyn std::e
         None,
     )?;
 
-    stream.play()?;
     std::thread::sleep(std::time::Duration::from_secs(duration_secs + 1));
-    drop(stream);
-    
+    stream.play()?;
+
     let samples = recorded_samples.lock().unwrap();
     let samples_f64: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
-    
-    let mut wav_file = WavFile::new(sample_rate, channels);
+
+    let mut wav_file = WavFile::new(audio_device.sample_rate, audio_device.channels);
     wav_file.from_f64_samples(&samples_f64);
-   
+
+    Ok(wav_file)
+}
+
+pub fn record_input_device(duration_secs: u64) -> Result<WavFile, Box<dyn std::error::Error>> {
+    let audio_device = AudioDevice::default_input()?;
+
+    let recorded_samples = Arc::new(Mutex::new(Vec::new()));
+    let recorded_samples_clone = recorded_samples.clone();
+
+    let stream = audio_device.device.build_input_stream(
+        &audio_device.config,
+        move |data: &[f32], _info: &cpal::InputCallbackInfo| {
+            recorded_samples_clone
+                .lock()
+                .unwrap()
+                .extend_from_slice(data);
+        },
+        move |err| {
+            eprintln!("Stream error: {}", err);
+        },
+        None,
+    )?;
+
+    std::thread::sleep(std::time::Duration::from_secs(duration_secs + 1));
+    stream.play()?;
+
+    let samples = recorded_samples.lock().unwrap();
+    let samples_f64: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
+
+    let mut wav_file = WavFile::new(audio_device.sample_rate, audio_device.channels);
+    wav_file.from_f64_samples(&samples_f64);
+
     Ok(wav_file)
 }
