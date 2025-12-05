@@ -1,6 +1,5 @@
-use std::{fs, sync::{Arc, Mutex}, thread};
+use std::{fs, sync::{Arc, Mutex}};
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
@@ -8,7 +7,7 @@ use ratatui::{
     Frame,
 };
 use crossterm::event::KeyCode;
-use crate::wav::WavFile;
+use crate::{device::AudioDevice, wav::WavFile};
 
 use super::App;
 
@@ -147,7 +146,7 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
                 app.daw_lanes[lane_idx].is_playing = true;
                 app.daw_lanes[lane_idx].playback_position = 0.0;
                 
-                crate::device::play_audio(
+                AudioDevice::play_audio(
                     wav.to_f64_samples(),
                     wav.header.sample_rate,
                     wav.header.num_channels,
@@ -168,7 +167,7 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
                 app.daw_lanes[lane_idx].is_playing = true;
                 app.daw_lanes[lane_idx].playback_position = 0.0;
                 
-                crate::device::play_audio(
+                AudioDevice::play_audio(
                     wav.to_f64_samples(),
                     wav.header.sample_rate,
                     wav.header.num_channels,
