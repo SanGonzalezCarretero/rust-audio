@@ -1,6 +1,7 @@
 use rand::Rng;
+use strum::EnumIter;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, EnumIter)]
 pub enum Effect {
     AdjustVolume(f32),
     Reverse,
@@ -11,10 +12,127 @@ pub enum Effect {
     PitchOctaveUp,
     LargeReverb,
     TapeSaturation,
-    Pan(char, u8),
+    PanLeft(u8),
+    PanRight(u8),
 }
 
 impl Effect {
+    /// Returns the display name of the effect
+    pub fn name(&self) -> String {
+        match self {
+            Effect::AdjustVolume(volume) => format!("Adjust Volume ({})", volume),
+            Effect::Reverse => "Reverse".to_string(),
+            Effect::Duplicate => "Duplicate".to_string(),
+            Effect::RandomNoise => "Random Noise".to_string(),
+            Effect::Delay { ms, taps } => format!("Delay ({}ms, {} taps)", ms, taps),
+            Effect::Tremolo => "Tremolo".to_string(),
+            Effect::PitchOctaveUp => "Pitch Octave Up".to_string(),
+            Effect::LargeReverb => "Large Reverb".to_string(),
+            Effect::TapeSaturation => "Tape Saturation".to_string(),
+            Effect::PanLeft(amount) => format!("Pan Left ({}%)", amount),
+            Effect::PanRight(amount) => format!("Pan Right ({}%)", amount),
+        }
+    }
+
+    /// Returns a default instance of the same effect variant
+    pub fn default_instance(&self) -> Effect {
+        match self {
+            Effect::AdjustVolume(_) => Effect::AdjustVolume(0.5),
+            Effect::Reverse => Effect::Reverse,
+            Effect::Duplicate => Effect::Duplicate,
+            Effect::RandomNoise => Effect::RandomNoise,
+            Effect::Delay { .. } => Effect::Delay { ms: 500, taps: 3 },
+            Effect::Tremolo => Effect::Tremolo,
+            Effect::PitchOctaveUp => Effect::PitchOctaveUp,
+            Effect::LargeReverb => Effect::LargeReverb,
+            Effect::TapeSaturation => Effect::TapeSaturation,
+            Effect::PanLeft(_) => Effect::PanLeft(75),
+            Effect::PanRight(_) => Effect::PanRight(75),
+        }
+    }
+
+    /// Check if two effects are the same variant (ignoring parameter values)
+    pub fn same_variant(&self, other: &Effect) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+
+    /// Returns the list of configurable parameters with their current values
+    pub fn parameters(&self) -> Vec<(String, String)> {
+        match self {
+            Effect::AdjustVolume(volume) => vec![("volume".to_string(), volume.to_string())],
+            Effect::Delay { ms, taps } => vec![
+                ("ms".to_string(), ms.to_string()),
+                ("taps".to_string(), taps.to_string()),
+            ],
+            Effect::PanLeft(amount) => vec![("amount".to_string(), amount.to_string())],
+            Effect::PanRight(amount) => vec![("amount".to_string(), amount.to_string())],
+            _ => vec![], // No configurable parameters
+        }
+    }
+
+    /// Updates a parameter value and returns a new Effect instance
+    pub fn update_parameter(&self, param_name: &str, value: &str) -> Result<Effect, String> {
+        match self {
+            Effect::AdjustVolume(_) => {
+                if param_name == "volume" {
+                    let volume: f32 = value.parse().map_err(|_| "Invalid volume value")?;
+                    if volume <= 0.0 || volume > 2.0 {
+                        return Err("Volume must be between 0.0 and 2.0".to_string());
+                    }
+                    Ok(Effect::AdjustVolume(volume))
+                } else {
+                    Err(format!("Unknown parameter: {}", param_name))
+                }
+            }
+            Effect::Delay { ms, taps } => match param_name {
+                "ms" => {
+                    let new_ms: usize = value.parse().map_err(|_| "Invalid ms value")?;
+                    if new_ms == 0 || new_ms > 5000 {
+                        return Err("Delay ms must be between 1 and 5000".to_string());
+                    }
+                    Ok(Effect::Delay {
+                        ms: new_ms,
+                        taps: *taps,
+                    })
+                }
+                "taps" => {
+                    let new_taps: usize = value.parse().map_err(|_| "Invalid taps value")?;
+                    if new_taps == 0 || new_taps > 10 {
+                        return Err("Taps must be between 1 and 10".to_string());
+                    }
+                    Ok(Effect::Delay {
+                        ms: *ms,
+                        taps: new_taps,
+                    })
+                }
+                _ => Err(format!("Unknown parameter: {}", param_name)),
+            },
+            Effect::PanLeft(_amount) => {
+                if param_name == "amount" {
+                    let new_amount: u8 = value.parse().map_err(|_| "Invalid amount value")?;
+                    if new_amount > 100 {
+                        return Err("Amount must be between 0 and 100".to_string());
+                    }
+                    Ok(Effect::PanLeft(new_amount))
+                } else {
+                    Err(format!("Unknown parameter: {}", param_name))
+                }
+            }
+            Effect::PanRight(_amount) => {
+                if param_name == "amount" {
+                    let new_amount: u8 = value.parse().map_err(|_| "Invalid amount value")?;
+                    if new_amount > 100 {
+                        return Err("Amount must be between 0 and 100".to_string());
+                    }
+                    Ok(Effect::PanRight(new_amount))
+                } else {
+                    Err(format!("Unknown parameter: {}", param_name))
+                }
+            }
+            _ => Err("This effect has no configurable parameters".to_string()),
+        }
+    }
+
     pub fn apply(&self, samples: &mut Vec<f64>, sample_rate: u32) -> Result<(), &'static str> {
         match self {
             Effect::AdjustVolume(volume) => adjust_volume(samples, *volume),
@@ -26,7 +144,8 @@ impl Effect {
             Effect::PitchOctaveUp => pitch_octave_up(samples),
             Effect::LargeReverb => large_reverb(samples, sample_rate),
             Effect::TapeSaturation => tape_saturation(samples),
-            Effect::Pan(direction, amount) => pan(samples, *direction, *amount),
+            Effect::PanLeft(amount) => pan(samples, 'L', *amount),
+            Effect::PanRight(amount) => pan(samples, 'R', *amount),
         }
     }
 }
