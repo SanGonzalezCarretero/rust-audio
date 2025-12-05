@@ -10,3 +10,4 @@ plotters = "0.3.3"
 cpal = "0.16.0"
 ratatui = "0.29.0"
 crossterm = "0.29.0"
+strum = { version = "0.27.2", features = ["derive"] }

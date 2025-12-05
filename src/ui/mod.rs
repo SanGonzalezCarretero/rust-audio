@@ -12,21 +12,21 @@ use ratatui::{
 };
 use std::{io, thread::JoinHandle};
 
+mod daw_screen;
+mod effects_screen;
 mod main_menu_screen;
 mod record_mic_screen;
-mod effects_screen;
-mod daw_screen;
 
 // Add new screens here
 pub enum Screen {
     MainMenu,
     RecordMic,
     Effects,
-    Daw
+    Daw,
 }
 
-use crate::wav::WavFile;
 use crate::effects::Effect;
+use crate::wav::WavFile;
 use std::sync::{Arc, Mutex};
 
 pub struct DawLane {
@@ -63,6 +63,8 @@ pub struct App {
     pub playback_position_arc: Option<Arc<Mutex<f64>>>,
     pub input_mode: bool,
     pub input_buffer: String,
+    pub active_parameter_edit: Option<(usize, String)>, // (effect_index, parameter_name)
+    pub configuring_effects: Vec<(usize, Vec<(String, String)>)>, // (effect_index, parameters_with_empty_values)
 }
 
 impl App {
@@ -79,6 +81,8 @@ impl App {
             playback_position_arc: None,
             input_mode: false,
             input_buffer: String::new(),
+            active_parameter_edit: None,
+            configuring_effects: vec![],
         }
     }
 }
@@ -132,16 +136,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(ref handle) = app.handle {
             if handle.is_finished() {
                 app.handle = None;
-                app.status = format!("Recorded");
+                app.status = "Recorded".to_string();
             }
         }
-        
+
         // Update playback position from audio thread
         let mut should_stop = false;
         if let Some(ref position_arc) = app.playback_position_arc {
             if let Ok(pos) = position_arc.lock() {
                 app.daw_lanes[0].playback_position = *pos;
-                
+
                 if *pos >= 1.0 {
                     app.daw_lanes[0].is_playing = false;
                     should_stop = true;
@@ -164,9 +168,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         // Route input to screen modules
                         let should_quit = match app.screen {
                             Screen::MainMenu => main_menu_screen::handle_input(&mut app, key.code)?,
-                            Screen::RecordMic => record_mic_screen::handle_input(&mut app, key.code)?,
+                            Screen::RecordMic => {
+                                record_mic_screen::handle_input(&mut app, key.code)?
+                            }
                             Screen::Effects => effects_screen::handle_input(&mut app, key.code)?,
-                            Screen::Daw => daw_screen::handle_input(&mut app, key.code)?
+                            Screen::Daw => daw_screen::handle_input(&mut app, key.code)?,
                         };
                         if should_quit {
                             break;

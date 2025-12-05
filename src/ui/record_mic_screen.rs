@@ -63,6 +63,15 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
             app.record_duration.pop();
         }
         KeyCode::Enter if app.selected == 1 => {
+            // Check if there are partially configured effects
+            if !app.configuring_effects.is_empty() {
+                app.status = format!(
+                    "Warning: {} effect(s) are partially configured and will not be applied",
+                    app.configuring_effects.len()
+                );
+                return Ok(false);
+            }
+            
             let duration: u64 = app.record_duration.parse().unwrap_or(10);
             app.status = format!("Recording {} seconds...", duration);
             let selected_effects = app.selected_effects.clone();
