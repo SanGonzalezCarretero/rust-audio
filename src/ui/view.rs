@@ -5,6 +5,8 @@ use ratatui::{
     Frame,
 };
 
+use crate::ui::synth_screen;
+
 use super::daw_screen;
 use super::effects_screen;
 use super::main_menu_screen;
@@ -67,6 +69,7 @@ impl AppView {
             Screen::MainMenu => main_menu_screen::render(f, app, area),
             Screen::RecordMic => record_mic_screen::render(f, app, area),
             Screen::Effects => effects_screen::render(f, app, area),
+            Screen::Synth => synth_screen::render(f, app, area),
             Screen::Daw => daw_screen::render(f, app, area),
         }
     }

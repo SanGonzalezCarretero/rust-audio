@@ -1,10 +1,12 @@
 use crossterm::event::{self, Event, KeyCode};
 use std::time::Duration;
 
+
 use super::daw_screen;
 use super::effects_screen;
 use super::main_menu_screen;
 use super::record_mic_screen;
+use super::synth_screen;
 use super::{App, Screen};
 
 /// Declarative configuration constants for event handling
@@ -100,6 +102,7 @@ impl AppEventHandler {
             Screen::MainMenu => main_menu_screen::handle_input(app, key)?,
             Screen::RecordMic => record_mic_screen::handle_input(app, key)?,
             Screen::Effects => effects_screen::handle_input(app, key)?,
+            Screen::Synth => synth_screen::handle_input(app, key)?,
             Screen::Daw => daw_screen::handle_input(app, key)?,
         };
         Ok(should_quit)

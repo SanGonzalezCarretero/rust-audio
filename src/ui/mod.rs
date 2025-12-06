@@ -10,6 +10,7 @@ mod effects_screen;
 mod event_handler;
 mod main_menu_screen;
 mod record_mic_screen;
+mod synth_screen;
 mod view;
 
 // Add new screens here
@@ -18,6 +19,7 @@ pub enum Screen {
     RecordMic,
     Effects,
     Daw,
+    Synth,
 }
 
 use crate::effects::Effect;
@@ -60,6 +62,7 @@ pub struct App {
     pub input_buffer: String,
     pub active_parameter_edit: Option<(usize, String)>, // (effect_index, parameter_name)
     pub configuring_effects: Vec<(usize, Vec<(String, String)>)>, // (effect_index, parameters_with_empty_values)
+    pub synth_params: Option<synth_screen::SynthParams>,
 }
 
 impl App {
@@ -78,6 +81,7 @@ impl App {
             input_buffer: String::new(),
             active_parameter_edit: None,
             configuring_effects: vec![],
+            synth_params: None,
         }
     }
 }

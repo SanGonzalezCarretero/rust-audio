@@ -12,6 +12,7 @@ const MENU_ITEMS: &[&str] = &[
     "Record Microphone",
     "Select Effects",
     "Daw",
+    "Synth",
     "Quit",
 ];
 
@@ -58,6 +59,10 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
                 },
                 2 => {
                     app.screen = Screen::Daw;
+                    app.selected = 0;
+                },
+                3 => {
+                    app.screen = Screen::Synth;
                     app.selected = 0;
                 },
                 2 => return Ok(true), // Quit
