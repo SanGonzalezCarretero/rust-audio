@@ -1,6 +1,6 @@
 use super::screen_trait::ScreenTrait;
 use super::App;
-use crate::effects::Effect;
+use crate::effects::EffectType;
 use crossterm::event::KeyCode;
 use ratatui::{
     layout::Rect,
@@ -42,18 +42,21 @@ pub struct EffectsScreen;
 
 impl ScreenTrait for EffectsScreen {
     fn render(&self, f: &mut Frame, app: &App, area: Rect) {
-        // Get all effect variants
-        let all_effect_variants: Vec<Effect> = Effect::iter().collect();
+        // Get all effect variants from registry
+        let all_effect_types: Vec<EffectType> = EffectType::iter().collect();
 
         let mut list_items: Vec<ListItem> = Vec::new();
         let mut rows: Vec<ListRow> = Vec::new();
 
-        for (idx, effect_variant) in all_effect_variants.iter().enumerate() {
-            // Check if this effect is enabled (exists in selected_effects or configuring_effects)
+        for (idx, effect_type) in all_effect_types.iter().enumerate() {
+            // Create a default instance for comparison
+            let effect_for_comparison = effect_type.create_default();
+
+            // Check if this effect is enabled
             let enabled_effect = app
                 .selected_effects
                 .iter()
-                .find(|e| e.same_variant(effect_variant));
+                .find(|e| e.same_variant(&effect_for_comparison));
 
             let configuring = app
                 .configuring_effects
@@ -70,37 +73,13 @@ impl ScreenTrait for EffectsScreen {
             // Get the effect name
             let effect_name = if let Some(effect) = enabled_effect {
                 // Fully configured effect - show full name with parameters
-                effect.name()
+                effect.display_name()
             } else if configuring.is_some() {
                 // Configuring effect - show just base name
-                match effect_variant {
-                    Effect::AdjustVolume(_) => "Adjust Volume".to_string(),
-                    Effect::Reverse => "Reverse".to_string(),
-                    Effect::Duplicate => "Duplicate".to_string(),
-                    Effect::RandomNoise => "Random Noise".to_string(),
-                    Effect::Delay { .. } => "Delay".to_string(),
-                    Effect::Tremolo => "Tremolo".to_string(),
-                    Effect::PitchOctaveUp => "Pitch Octave Up".to_string(),
-                    Effect::LargeReverb => "Large Reverb".to_string(),
-                    Effect::TapeSaturation => "Tape Saturation".to_string(),
-                    Effect::PanLeft(_) => "Pan Left".to_string(),
-                    Effect::PanRight(_) => "Pan Right".to_string(),
-                }
+                effect_type.name()
             } else {
                 // Unconfigured effect - show just base name
-                match effect_variant {
-                    Effect::AdjustVolume(_) => "Adjust Volume".to_string(),
-                    Effect::Reverse => "Reverse".to_string(),
-                    Effect::Duplicate => "Duplicate".to_string(),
-                    Effect::RandomNoise => "Random Noise".to_string(),
-                    Effect::Delay { .. } => "Delay".to_string(),
-                    Effect::Tremolo => "Tremolo".to_string(),
-                    Effect::PitchOctaveUp => "Pitch Octave Up".to_string(),
-                    Effect::LargeReverb => "Large Reverb".to_string(),
-                    Effect::TapeSaturation => "Tape Saturation".to_string(),
-                    Effect::PanLeft(_) => "Pan Left".to_string(),
-                    Effect::PanRight(_) => "Pan Right".to_string(),
-                }
+                effect_type.name()
             };
 
             // Main effect line
@@ -191,7 +170,7 @@ impl ScreenTrait for EffectsScreen {
         app: &mut App,
         key: KeyCode,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let all_effect_variants: Vec<Effect> = Effect::iter().collect();
+        let all_effect_types: Vec<EffectType> = EffectType::iter().collect();
 
         // If we're currently editing a parameter
         if let Some((effect_idx, param_name)) = &app.active_parameter_edit {
@@ -224,20 +203,9 @@ impl ScreenTrait for EffectsScreen {
 
                             if all_filled {
                                 // All parameters filled - create the effect and move to selected_effects
-                                let effect_variant = &all_effect_variants[effect_idx];
-                                let mut new_effect = match effect_variant {
-                                    Effect::AdjustVolume(_) => Effect::AdjustVolume(1.0),
-                                    Effect::Reverse => Effect::Reverse,
-                                    Effect::Duplicate => Effect::Duplicate,
-                                    Effect::RandomNoise => Effect::RandomNoise,
-                                    Effect::Delay { .. } => Effect::Delay { ms: 1, taps: 1 },
-                                    Effect::Tremolo => Effect::Tremolo,
-                                    Effect::PitchOctaveUp => Effect::PitchOctaveUp,
-                                    Effect::LargeReverb => Effect::LargeReverb,
-                                    Effect::TapeSaturation => Effect::TapeSaturation,
-                                    Effect::PanLeft(_) => Effect::PanLeft(0),
-                                    Effect::PanRight(_) => Effect::PanRight(0),
-                                };
+                                let effect_type = &all_effect_types[effect_idx];
+                                // Create default instance for this effect type
+                                let mut new_effect = effect_type.create_default();
 
                                 for (p_name, p_value) in params {
                                     match new_effect.update_parameter(p_name, p_value) {
@@ -257,28 +225,35 @@ impl ScreenTrait for EffectsScreen {
                                         .unwrap(),
                                 );
                                 app.selected_effects.push(new_effect.clone());
-                                app.status = format!("Applied {}", new_effect.name());
-                            }
-                        }
-                    } else if let Some(effect) = app
-                        .selected_effects
-                        .iter_mut()
-                        .find(|e| e.same_variant(&all_effect_variants[effect_idx]))
-                    {
-                        // Update parameter in selected_effects
-                        match effect.update_parameter(&param_name, &input_value) {
-                            Ok(new_effect) => {
-                                *effect = new_effect;
-                                app.status = format!("Updated {} = {}", param_name, input_value);
-                            }
-                            Err(e) => {
-                                app.status = format!("Error: {}", e);
-                                return Ok(false);
+                                app.status = format!("Applied {}", new_effect.display_name());
                             }
                         }
                     } else {
-                        app.status = "Error: Effect not found".to_string();
-                        return Ok(false);
+                        // Try to find and update effect
+                        let effect_type = &all_effect_types[effect_idx];
+                        let effect_for_compare = effect_type.create_default();
+
+                        if let Some(effect) = app
+                            .selected_effects
+                            .iter_mut()
+                            .find(|e| e.same_variant(&effect_for_compare))
+                        {
+                            // Update parameter in selected_effects
+                            match effect.update_parameter(&param_name, &input_value) {
+                                Ok(new_effect) => {
+                                    *effect = new_effect;
+                                    app.status =
+                                        format!("Updated {} = {}", param_name, input_value);
+                                }
+                                Err(e) => {
+                                    app.status = format!("Error: {}", e);
+                                    return Ok(false);
+                                }
+                            }
+                        } else {
+                            app.status = "Error: Effect not found".to_string();
+                            return Ok(false);
+                        }
                     }
 
                     app.active_parameter_edit = None;
@@ -303,15 +278,19 @@ impl ScreenTrait for EffectsScreen {
 
         // Build the flat list of rows to know what the cursor is on
         let mut rows: Vec<ListRow> = Vec::new();
-        for (idx, effect_variant) in all_effect_variants.iter().enumerate() {
+        for (idx, effect_type) in all_effect_types.iter().enumerate() {
             rows.push(ListRow::Effect(idx));
 
+            // Create default instance for comparison
+            let effect_for_compare = effect_type.create_default();
+
             // Check both selected_effects and configuring_effects
-            if let Some(effect) = app
+            let found_effect = app
                 .selected_effects
                 .iter()
-                .find(|e| e.same_variant(effect_variant))
-            {
+                .find(|e| e.same_variant(&effect_for_compare));
+
+            if let Some(effect) = found_effect {
                 let parameters = effect.parameters();
                 for (param_name, param_value) in parameters {
                     rows.push(ListRow::Parameter(idx, param_name, param_value));
@@ -348,16 +327,19 @@ impl ScreenTrait for EffectsScreen {
             KeyCode::Char(' ') => {
                 // Toggle effect on/off (only works when on an effect row)
                 if let Some(ListRow::Effect(effect_idx)) = rows.get(app.selected) {
-                    let effect_variant = &all_effect_variants[*effect_idx];
+                    let effect_type = &all_effect_types[*effect_idx];
+
+                    // Create default instance for comparison
+                    let effect_for_compare = effect_type.create_default();
 
                     // Check if effect is in selected_effects
                     if let Some(pos) = app
                         .selected_effects
                         .iter()
-                        .position(|e| e.same_variant(effect_variant))
+                        .position(|e| e.same_variant(&effect_for_compare))
                     {
                         // Effect is enabled, remove it
-                        let effect_name = app.selected_effects[pos].name();
+                        let effect_name = app.selected_effects[pos].display_name();
                         app.selected_effects.remove(pos);
                         app.status = format!("Disabled {}", effect_name);
                     } else if let Some(pos) = app
@@ -370,24 +352,13 @@ impl ScreenTrait for EffectsScreen {
                         app.status = "Configuration cancelled".to_string();
                     } else {
                         // Effect is not enabled - check if it has parameters
-                        let temp_effect = match effect_variant {
-                            Effect::AdjustVolume(_) => Effect::AdjustVolume(1.0),
-                            Effect::Reverse => Effect::Reverse,
-                            Effect::Duplicate => Effect::Duplicate,
-                            Effect::RandomNoise => Effect::RandomNoise,
-                            Effect::Delay { .. } => Effect::Delay { ms: 1, taps: 1 },
-                            Effect::Tremolo => Effect::Tremolo,
-                            Effect::PitchOctaveUp => Effect::PitchOctaveUp,
-                            Effect::LargeReverb => Effect::LargeReverb,
-                            Effect::TapeSaturation => Effect::TapeSaturation,
-                            Effect::PanLeft(_) => Effect::PanLeft(0),
-                            Effect::PanRight(_) => Effect::PanRight(0),
-                        };
+                        // Create default instance to check parameters
+                        let temp_effect = effect_type.create_default();
                         let parameters = temp_effect.parameters();
 
                         if parameters.is_empty() {
                             // No parameters - add directly to selected_effects
-                            let effect_name = temp_effect.name();
+                            let effect_name = temp_effect.display_name();
                             app.selected_effects.push(temp_effect);
                             app.status = format!("Enabled {}", effect_name);
                         } else {
@@ -397,20 +368,8 @@ impl ScreenTrait for EffectsScreen {
                                 .map(|(name, _)| (name, String::new()))
                                 .collect();
                             app.configuring_effects.push((*effect_idx, empty_params));
-                            let effect_name = match effect_variant {
-                                Effect::AdjustVolume(_) => "Adjust Volume",
-                                Effect::Reverse => "Reverse",
-                                Effect::Duplicate => "Duplicate",
-                                Effect::RandomNoise => "Random Noise",
-                                Effect::Delay { .. } => "Delay",
-                                Effect::Tremolo => "Tremolo",
-                                Effect::PitchOctaveUp => "Pitch Octave Up",
-                                Effect::LargeReverb => "Large Reverb",
-                                Effect::TapeSaturation => "Tape Saturation",
-                                Effect::PanLeft(_) => "Pan Left",
-                                Effect::PanRight(_) => "Pan Right",
-                            };
-                            app.status = format!("Enabled {} - configure parameters", effect_name);
+                            app.status =
+                                format!("Enabled {} - configure parameters", effect_type.name());
                         }
                     }
                 }
@@ -420,7 +379,7 @@ impl ScreenTrait for EffectsScreen {
                 match rows.get(app.selected) {
                     Some(ListRow::Effect(effect_idx)) => {
                         // On an effect row - start editing first parameter if available
-                        let effect_variant = &all_effect_variants[*effect_idx];
+                        let effect_type = &all_effect_types[*effect_idx];
 
                         // Check configuring_effects first
                         if let Some((_, params)) = app
@@ -439,29 +398,34 @@ impl ScreenTrait for EffectsScreen {
                                     first_param
                                 );
                             }
-                        } else if let Some(effect) = app
-                            .selected_effects
-                            .iter()
-                            .find(|e| e.same_variant(effect_variant))
-                        {
-                            let parameters = effect.parameters();
-                            if !parameters.is_empty() {
-                                let first_param = parameters[0].0.clone();
-                                let first_value = parameters[0].1.clone();
-                                app.active_parameter_edit =
-                                    Some((*effect_idx, first_param.clone()));
-                                app.input_buffer = first_value;
-                                app.status = format!(
-                                    "Editing {} (Enter to confirm, Esc to cancel)",
-                                    first_param
-                                );
+                        } else {
+                            // Create default instance for comparison
+                            let effect_for_compare = effect_type.create_default();
+
+                            if let Some(effect) = app
+                                .selected_effects
+                                .iter()
+                                .find(|e| e.same_variant(&effect_for_compare))
+                            {
+                                let parameters = effect.parameters();
+                                if !parameters.is_empty() {
+                                    let first_param = parameters[0].0.clone();
+                                    let first_value = parameters[0].1.clone();
+                                    app.active_parameter_edit =
+                                        Some((*effect_idx, first_param.clone()));
+                                    app.input_buffer = first_value;
+                                    app.status = format!(
+                                        "Editing {} (Enter to confirm, Esc to cancel)",
+                                        first_param
+                                    );
+                                } else {
+                                    app.status =
+                                        "This effect has no configurable parameters".to_string();
+                                }
                             } else {
                                 app.status =
-                                    "This effect has no configurable parameters".to_string();
+                                    "Enable the effect first to configure parameters".to_string();
                             }
-                        } else {
-                            app.status =
-                                "Enable the effect first to configure parameters".to_string();
                         }
                     }
                     Some(ListRow::Parameter(effect_idx, param_name, param_value)) => {

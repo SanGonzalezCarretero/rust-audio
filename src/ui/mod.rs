@@ -21,7 +21,7 @@ pub enum Screen {
     Daw,
 }
 
-use crate::effects::Effect;
+use crate::effects::EffectInstance;
 use crate::wav::WavFile;
 use std::sync::{Arc, Mutex};
 
@@ -53,7 +53,7 @@ pub struct App {
     pub status: String,
     pub record_duration: String,
     pub wav_file: Option<WavFile>,
-    pub selected_effects: Vec<Effect>,
+    pub selected_effects: Vec<EffectInstance>,
     pub handle: Option<JoinHandle<()>>,
     pub daw_lanes: [DawLane; 3],
     pub playback_position_arc: Option<Arc<Mutex<f64>>>,

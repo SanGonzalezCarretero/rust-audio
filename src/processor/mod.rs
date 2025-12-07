@@ -1,4 +1,4 @@
-use crate::effects::Effect;
+use crate::effects::EffectInstance;
 use rustfft::num_complex::Complex64;
 use rustfft::FftPlanner;
 
@@ -24,7 +24,7 @@ impl Processor {
     pub fn apply_time_domain_effect(
         &self,
         samples: &mut Vec<f64>,
-        effect: Effect,
+        effect: &EffectInstance,
     ) -> Result<(), &'static str> {
         effect.apply(samples, self.sample_rate)
     }

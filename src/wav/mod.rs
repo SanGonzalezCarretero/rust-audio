@@ -21,7 +21,7 @@ pub struct WavFile {
     pub audio_data: Vec<u8>,
 }
 
-use crate::effects::Effect;
+use crate::effects::EffectInstance;
 
 impl WavFile {
     pub fn new(sample_rate: u32, num_channels: u16) -> Self {
@@ -172,7 +172,7 @@ impl WavFile {
 
     pub fn apply_effects(
         &mut self,
-        effects: Vec<Effect>,
+        effects: Vec<EffectInstance>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut samples = self.to_f64_samples();
 
