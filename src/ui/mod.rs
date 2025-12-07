@@ -12,6 +12,7 @@ mod main_menu_screen;
 mod record_mic_screen;
 mod screen_trait;
 mod view;
+mod audio_preferences_screen;
 
 // Add new screens here
 pub enum Screen {
@@ -19,6 +20,7 @@ pub enum Screen {
     RecordMic,
     Effects,
     Daw,
+    AudioPreferences,
 }
 
 use crate::effects::EffectInstance;
@@ -61,6 +63,8 @@ pub struct App {
     pub input_buffer: String,
     pub active_parameter_edit: Option<(usize, String)>, // (effect_index, parameter_name)
     pub configuring_effects: Vec<(usize, Vec<(String, String)>)>, // (effect_index, parameters_with_empty_values)
+    pub audio_prefs_input_selected: usize,
+    pub audio_prefs_output_selected: usize,
 }
 
 impl App {
@@ -79,6 +83,8 @@ impl App {
             input_buffer: String::new(),
             active_parameter_edit: None,
             configuring_effects: vec![],
+            audio_prefs_input_selected: 0,
+            audio_prefs_output_selected: 0,
         }
     }
 }

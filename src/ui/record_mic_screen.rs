@@ -93,9 +93,10 @@ impl ScreenTrait for RecordMicScreen {
                 let duration: u64 = app.record_duration.parse().unwrap_or(10);
                 app.status = format!("Recording {} seconds...", duration);
                 let selected_effects = app.selected_effects.clone();
+                let device_index = app.audio_prefs_input_selected;
 
                 app.handle = Some(thread::spawn(move || {
-                    match crate::input::record_and_save_input_device(duration) {
+                    match crate::input::record_input_device(duration, device_index) {
                         Ok(mut wav_file) => {
                             // Apply FX
                             if !selected_effects.is_empty() {

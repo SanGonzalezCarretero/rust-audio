@@ -9,6 +9,7 @@ use super::daw_screen::DawScreen;
 use super::effects_screen::EffectsScreen;
 use super::main_menu_screen::MainMenuScreen;
 use super::record_mic_screen::RecordMicScreen;
+use super::audio_preferences_screen::AudioPreferencesScreen;
 use super::screen_trait::ScreenTrait;
 use super::{App, Screen};
 
@@ -63,6 +64,7 @@ impl AppView {
             Screen::RecordMic => RecordMicScreen.render(f, app, area),
             Screen::Effects => EffectsScreen.render(f, app, area),
             Screen::Daw => DawScreen.render(f, app, area),
+            Screen::AudioPreferences => AudioPreferencesScreen.render(f, app, area),
         }
     }
 
