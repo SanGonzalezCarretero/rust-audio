@@ -4,6 +4,7 @@ use cpal::traits::{DeviceTrait, StreamTrait};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+// TODO: this has delay
 pub fn record_input_device(
     duration_secs: u64,
     device_index: usize,
