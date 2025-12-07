@@ -48,6 +48,54 @@ impl AudioDevice {
         })
     }
 
+    pub fn input_by_index(index: usize) -> Result<Self, Box<dyn std::error::Error>> {
+        let host = cpal::default_host();
+        let device = host.input_devices()?
+            .nth(index)
+            .ok_or("Device not found")?;
+        let config: StreamConfig = device.default_input_config()?.into();
+        let SampleRate(sample_rate) = config.sample_rate;
+        let channels = config.channels;
+
+        Ok(Self {
+            device,
+            config,
+            sample_rate,
+            channels,
+        })
+    }
+
+    pub fn output_by_index(index: usize) -> Result<Self, Box<dyn std::error::Error>> {
+        let host = cpal::default_host();
+        let device = host.output_devices()?
+            .nth(index)
+            .ok_or("Device not found")?;
+        let config: StreamConfig = device.default_output_config()?.into();
+        let SampleRate(sample_rate) = config.sample_rate;
+        let channels = config.channels;
+
+        Ok(Self {
+            device,
+            config,
+            sample_rate,
+            channels,
+        })
+    }
+
+    pub fn list_input_devices() -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let host = cpal::default_host();
+        Ok(host.input_devices()?
+            .filter_map(|d| d.name().ok())
+            .collect())
+    }
+
+    pub fn list_output_devices() -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let host = cpal::default_host();
+        Ok(host.output_devices()?
+            .filter_map(|d| d.name().ok())
+            .collect())
+    }
+
     pub fn play_audio(samples: Vec<f64>, sample_rate: u32, channels: u16, playback_position: Arc<Mutex<f64>>) {
     std::thread::spawn(move || {
         if let Ok((_, device)) = Self::get_host_and_device(false) {
