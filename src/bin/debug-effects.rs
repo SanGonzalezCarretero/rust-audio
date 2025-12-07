@@ -15,13 +15,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // wav_file.from_f64_samples(&filtered_samples);
     // fs::write("output.wav", wav_file.export_to_bytes())?;
-
-    match input::record_input_device(50) {
-        Ok(mut wav_file) => {
-            fs::write("recorded.wav", wav_file.export_to_bytes()).unwrap();
-        }
-        Err(e) => {}
-    }
-
+    
     Ok(())
 }
