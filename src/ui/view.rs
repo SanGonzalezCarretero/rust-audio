@@ -1,19 +1,19 @@
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::Style,
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
 
-use super::daw_screen;
-use super::effects_screen;
-use super::main_menu_screen;
-use super::record_mic_screen;
+use super::daw_screen::DawScreen;
+use super::effects_screen::EffectsScreen;
+use super::main_menu_screen::MainMenuScreen;
+use super::record_mic_screen::RecordMicScreen;
+use super::screen_trait::ScreenTrait;
 use super::{App, Screen};
 
-/// Declarative configuration constants for the application layout
 mod layout_config {
-    use super::*;
+    use ratatui::style::Color;
 
     pub const TITLE: &str = "Rust Audio Processor";
     pub const TITLE_COLOR: Color = Color::Cyan;
@@ -26,11 +26,9 @@ mod layout_config {
     pub const MARGIN: u16 = 2;
 }
 
-/// Declarative view definition for the application layout
 pub struct AppView;
 
 impl AppView {
-    /// Render the complete application view declaratively
     pub fn render(f: &mut Frame, app: &App) {
         let chunks = Self::create_layout(f.area());
 
@@ -39,7 +37,6 @@ impl AppView {
         Self::render_status(f, app, chunks[2]);
     }
 
-    /// Declare the layout structure with named constraints
     fn create_layout(area: Rect) -> std::rc::Rc<[Rect]> {
         Layout::default()
             .direction(Direction::Vertical)
@@ -52,7 +49,6 @@ impl AppView {
             .split(area)
     }
 
-    /// Declarative title bar configuration
     fn render_title(f: &mut Frame, area: Rect) {
         let title = Paragraph::new(layout_config::TITLE)
             .style(Style::default().fg(layout_config::TITLE_COLOR))
@@ -61,17 +57,15 @@ impl AppView {
         f.render_widget(title, area);
     }
 
-    /// Declarative content area routing
     fn render_content(f: &mut Frame, app: &App, area: Rect) {
         match app.screen {
-            Screen::MainMenu => main_menu_screen::render(f, app, area),
-            Screen::RecordMic => record_mic_screen::render(f, app, area),
-            Screen::Effects => effects_screen::render(f, app, area),
-            Screen::Daw => daw_screen::render(f, app, area),
+            Screen::MainMenu => MainMenuScreen.render(f, app, area),
+            Screen::RecordMic => RecordMicScreen.render(f, app, area),
+            Screen::Effects => EffectsScreen.render(f, app, area),
+            Screen::Daw => DawScreen.render(f, app, area),
         }
     }
 
-    /// Declarative status bar configuration
     fn render_status(f: &mut Frame, app: &App, area: Rect) {
         let status = Paragraph::new(app.status.clone())
             .style(Style::default().fg(layout_config::STATUS_COLOR))

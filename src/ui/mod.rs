@@ -10,6 +10,7 @@ mod effects_screen;
 mod event_handler;
 mod main_menu_screen;
 mod record_mic_screen;
+mod screen_trait;
 mod view;
 
 // Add new screens here

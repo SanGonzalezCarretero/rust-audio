@@ -1,13 +1,13 @@
 use crossterm::event::{self, Event, KeyCode};
 use std::time::Duration;
 
-use super::daw_screen;
-use super::effects_screen;
-use super::main_menu_screen;
-use super::record_mic_screen;
+use super::daw_screen::DawScreen;
+use super::effects_screen::EffectsScreen;
+use super::main_menu_screen::MainMenuScreen;
+use super::record_mic_screen::RecordMicScreen;
+use super::screen_trait::ScreenTrait;
 use super::{App, Screen};
 
-/// Declarative configuration constants for event handling
 mod event_config {
     use crossterm::event::KeyCode;
 
@@ -18,12 +18,9 @@ mod event_config {
     pub const PLAYBACK_COMPLETE_THRESHOLD: f64 = 1.0;
 }
 
-/// Declarative event handler for the application
 pub struct AppEventHandler;
 
 impl AppEventHandler {
-    /// Process all application events (background tasks, playback updates, user input)
-    /// Returns true if the application should quit
     pub fn process_events(app: &mut App) -> Result<bool, Box<dyn std::error::Error>> {
         Self::update_background_tasks(app);
         Self::update_playback_position(app);
@@ -35,7 +32,6 @@ impl AppEventHandler {
         Ok(false)
     }
 
-    /// Update background tasks (e.g., recording completion)
     fn update_background_tasks(app: &mut App) {
         if let Some(ref handle) = app.handle {
             if handle.is_finished() {
@@ -45,7 +41,6 @@ impl AppEventHandler {
         }
     }
 
-    /// Update playback position from audio thread
     fn update_playback_position(app: &mut App) {
         let mut should_stop = false;
         if let Some(ref position_arc) = app.playback_position_arc {
@@ -63,13 +58,11 @@ impl AppEventHandler {
         }
     }
 
-    /// Poll for events with configured timeout
     fn poll_for_event() -> Result<bool, Box<dyn std::error::Error>> {
         event::poll(Duration::from_millis(event_config::POLL_TIMEOUT_MS))
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
 
-    /// Handle user keyboard input
     fn handle_user_input(app: &mut App) -> Result<bool, Box<dyn std::error::Error>> {
         if let Event::Key(key) = event::read()? {
             match key.code {
@@ -85,23 +78,20 @@ impl AppEventHandler {
         Ok(false)
     }
 
-    /// Handle the back/escape key
     fn handle_back_key(app: &mut App) {
         app.screen = Screen::MainMenu;
         app.selected = 0;
     }
 
-    /// Route input to the appropriate screen handler
     fn route_to_screen_handler(
         app: &mut App,
         key: KeyCode,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let should_quit = match app.screen {
-            Screen::MainMenu => main_menu_screen::handle_input(app, key)?,
-            Screen::RecordMic => record_mic_screen::handle_input(app, key)?,
-            Screen::Effects => effects_screen::handle_input(app, key)?,
-            Screen::Daw => daw_screen::handle_input(app, key)?,
-        };
-        Ok(should_quit)
+        match app.screen {
+            Screen::MainMenu => MainMenuScreen.handle_input(app, key),
+            Screen::RecordMic => RecordMicScreen.handle_input(app, key),
+            Screen::Effects => EffectsScreen.handle_input(app, key),
+            Screen::Daw => DawScreen.handle_input(app, key),
+        }
     }
 }
