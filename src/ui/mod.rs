@@ -1,21 +1,18 @@
 use crossterm::{
-    event::{self, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Style},
-    widgets::{Block, Borders, Paragraph},
-    Terminal,
-};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{io, thread::JoinHandle};
 
 mod daw_screen;
 mod effects_screen;
+mod event_handler;
 mod main_menu_screen;
 mod record_mic_screen;
+mod screen_trait;
+mod view;
+mod audio_preferences_screen;
 
 // Add new screens here
 pub enum Screen {
@@ -23,9 +20,10 @@ pub enum Screen {
     RecordMic,
     Effects,
     Daw,
+    AudioPreferences,
 }
 
-use crate::effects::Effect;
+use crate::effects::EffectInstance;
 use crate::wav::WavFile;
 use std::sync::{Arc, Mutex};
 
@@ -57,7 +55,7 @@ pub struct App {
     pub status: String,
     pub record_duration: String,
     pub wav_file: Option<WavFile>,
-    pub selected_effects: Vec<Effect>,
+    pub selected_effects: Vec<EffectInstance>,
     pub handle: Option<JoinHandle<()>>,
     pub daw_lanes: [DawLane; 3],
     pub playback_position_arc: Option<Arc<Mutex<f64>>>,
@@ -65,6 +63,8 @@ pub struct App {
     pub input_buffer: String,
     pub active_parameter_edit: Option<(usize, String)>, // (effect_index, parameter_name)
     pub configuring_effects: Vec<(usize, Vec<(String, String)>)>, // (effect_index, parameters_with_empty_values)
+    pub audio_prefs_input_selected: usize,
+    pub audio_prefs_output_selected: usize,
 }
 
 impl App {
@@ -83,6 +83,8 @@ impl App {
             input_buffer: String::new(),
             active_parameter_edit: None,
             configuring_effects: vec![],
+            audio_prefs_input_selected: 0,
+            audio_prefs_output_selected: 0,
         }
     }
 }
@@ -98,88 +100,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         terminal.draw(|f| {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(2)
-                .constraints([
-                    Constraint::Length(3),
-                    Constraint::Min(5),
-                    Constraint::Length(3),
-                ])
-                .split(f.area());
-
-            // Title bar
-            let title = Paragraph::new("Rust Audio Processor")
-                .style(Style::default().fg(Color::Cyan))
-                .alignment(Alignment::Center)
-                .block(Block::default().borders(Borders::ALL));
-            f.render_widget(title, chunks[0]);
-
-            // Main content area - route to screen modules
-            match app.screen {
-                Screen::MainMenu => main_menu_screen::render(f, &app, chunks[1]),
-                Screen::RecordMic => record_mic_screen::render(f, &app, chunks[1]),
-                Screen::Effects => effects_screen::render(f, &app, chunks[1]),
-                Screen::Daw => daw_screen::render(f, &app, chunks[1]),
-                // Add new screen rendering here:
-                // Screen::YourNewScreen => your_screen::render(f, &app, chunks[1]),
-            }
-
-            // Status bar
-            let status_widget = Paragraph::new(app.status.clone())
-                .style(Style::default().fg(Color::Yellow))
-                .alignment(Alignment::Center)
-                .block(Block::default().borders(Borders::ALL).title("Status"));
-            f.render_widget(status_widget, chunks[2]);
+            view::AppView::render(f, &app);
         })?;
 
-        if let Some(ref handle) = app.handle {
-            if handle.is_finished() {
-                app.handle = None;
-                app.status = "Recorded".to_string();
-            }
-        }
-
-        // Update playback position from audio thread
-        let mut should_stop = false;
-        if let Some(ref position_arc) = app.playback_position_arc {
-            if let Ok(pos) = position_arc.lock() {
-                app.daw_lanes[0].playback_position = *pos;
-
-                if *pos >= 1.0 {
-                    app.daw_lanes[0].is_playing = false;
-                    should_stop = true;
-                }
-            }
-        }
-        if should_stop {
-            app.playback_position_arc = None;
-        }
-
-        if event::poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') => break,
-                    KeyCode::Esc => {
-                        app.screen = Screen::MainMenu;
-                        app.selected = 0;
-                    }
-                    _ => {
-                        // Route input to screen modules
-                        let should_quit = match app.screen {
-                            Screen::MainMenu => main_menu_screen::handle_input(&mut app, key.code)?,
-                            Screen::RecordMic => {
-                                record_mic_screen::handle_input(&mut app, key.code)?
-                            }
-                            Screen::Effects => effects_screen::handle_input(&mut app, key.code)?,
-                            Screen::Daw => daw_screen::handle_input(&mut app, key.code)?,
-                        };
-                        if should_quit {
-                            break;
-                        }
-                    }
-                }
-            }
+        if event_handler::AppEventHandler::process_events(&mut app)? {
+            break;
         }
     }
 
