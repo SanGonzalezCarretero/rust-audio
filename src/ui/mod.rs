@@ -24,30 +24,8 @@ pub enum Screen {
 }
 
 use crate::effects::EffectInstance;
+use crate::track::Track;
 use crate::wav::WavFile;
-use std::sync::{Arc, Mutex};
-
-pub struct DawLane {
-    pub file_path: String,
-    pub wav_data: Option<WavFile>,
-    pub volume: f64,
-    pub muted: bool,
-    pub playback_position: f64,
-    pub is_playing: bool,
-}
-
-impl DawLane {
-    fn new() -> Self {
-        DawLane {
-            file_path: String::new(),
-            wav_data: None,
-            volume: 1.0,
-            muted: false,
-            playback_position: 0.0,
-            is_playing: false,
-        }
-    }
-}
 
 pub struct App {
     pub screen: Screen,
@@ -57,8 +35,7 @@ pub struct App {
     pub wav_file: Option<WavFile>,
     pub selected_effects: Vec<EffectInstance>,
     pub handle: Option<JoinHandle<()>>,
-    pub daw_lanes: [DawLane; 3],
-    pub playback_position_arc: Option<Arc<Mutex<f64>>>,
+    pub tracks: [Track; 3],
     pub input_mode: bool,
     pub input_buffer: String,
     pub active_parameter_edit: Option<(usize, String)>, // (effect_index, parameter_name)
@@ -77,8 +54,11 @@ impl App {
             wav_file: None,
             selected_effects: vec![],
             handle: None,
-            daw_lanes: [DawLane::new(), DawLane::new(), DawLane::new()],
-            playback_position_arc: None,
+            tracks: [
+                Track::new("Track 1".to_string()),
+                Track::new("Track 2".to_string()),
+                Track::new("Track 3".to_string()),
+            ],
             input_mode: false,
             input_buffer: String::new(),
             active_parameter_edit: None,
