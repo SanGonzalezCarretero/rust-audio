@@ -96,19 +96,7 @@ impl ScreenTrait for RecordMicScreen {
                 let device_index = app.audio_prefs_input_selected;
 
                 app.handle = Some(thread::spawn(move || {
-                    match crate::input::record_input_device(duration, device_index) {
-                        Ok(mut wav_file) => {
-                            // Apply FX
-                            if !selected_effects.is_empty() {
-                                let _ = wav_file.apply_effects(selected_effects);
-                            }
-                            fs::write("recorded.wav", wav_file.export_to_bytes()).unwrap();
-                            // app.status = format!("Recorded succesfully to recorded.wav");
-                        }
-                        Err(_e) => {
-                            // app.status = format!("✗ Error: {}", e);
-                        }
-                    }
+                    let _ = crate::input::record_input_device(duration, device_index);
                 }));
             }
             _ => {}
