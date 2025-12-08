@@ -16,7 +16,6 @@ mod event_config {
     pub const QUIT_KEY: char = 'q';
     pub const BACK_KEY: KeyCode = KeyCode::Esc;
     pub const RECORDED_STATUS: &str = "Recorded";
-    pub const PLAYBACK_COMPLETE_THRESHOLD: f64 = 1.0;
 }
 
 pub struct AppEventHandler;
@@ -24,7 +23,6 @@ pub struct AppEventHandler;
 impl AppEventHandler {
     pub fn process_events(app: &mut App) -> Result<bool, Box<dyn std::error::Error>> {
         Self::update_background_tasks(app);
-        Self::update_playback_position(app);
 
         if Self::poll_for_event()? {
             return Self::handle_user_input(app);
@@ -39,23 +37,6 @@ impl AppEventHandler {
                 app.handle = None;
                 app.status = event_config::RECORDED_STATUS.to_string();
             }
-        }
-    }
-
-    fn update_playback_position(app: &mut App) {
-        let mut should_stop = false;
-        if let Some(ref position_arc) = app.playback_position_arc {
-            if let Ok(pos) = position_arc.lock() {
-                app.daw_lanes[0].playback_position = *pos;
-
-                if *pos >= event_config::PLAYBACK_COMPLETE_THRESHOLD {
-                    app.daw_lanes[0].is_playing = false;
-                    should_stop = true;
-                }
-            }
-        }
-        if should_stop {
-            app.playback_position_arc = None;
         }
     }
 
