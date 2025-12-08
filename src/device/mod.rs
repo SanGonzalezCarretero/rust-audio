@@ -96,7 +96,7 @@ impl AudioDevice {
             .collect())
     }
 
-    pub fn play_audio(samples: Vec<f64>, sample_rate: u32, channels: u16, playback_position: Arc<Mutex<f64>>) {
+    pub fn play_audio(samples: Vec<f64>, sample_rate: u32, channels: u16) {
     std::thread::spawn(move || {
         if let Ok((_, device)) = Self::get_host_and_device(false) {
             let config = StreamConfig {
@@ -108,7 +108,6 @@ impl AudioDevice {
             let samples = Arc::new(samples);
             let samples_clone = Arc::clone(&samples);
             let total_samples = samples.len();
-            let position_update = Arc::clone(&playback_position);
             let mut sample_idx = 0;
             
             if let Ok(stream) = device.build_output_stream(
@@ -121,9 +120,6 @@ impl AudioDevice {
                             0.0
                         };
                         sample_idx += 1;
-                    }
-                    if let Ok(mut pos) = position_update.lock() {
-                        *pos = sample_idx as f64 / total_samples as f64;
                     }
                 },
                 |err| eprintln!("Stream error: {}", err),
