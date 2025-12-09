@@ -19,7 +19,7 @@ mod layout_config {
     pub const DEFAULT_BORDER: Color = Color::White;
     pub const ARMED_BORDER: Color = Color::Red;
     pub const RECORDING_BORDER: Color = Color::Magenta;
-    pub const EMPTY_LANE_MESSAGE: &str = "'a' to arm | 'r' to record";
+    pub const EMPTY_LANE_MESSAGE: &str = "Space: Play All | 'p': Solo | 'a': Arm | 'r': Record";
     pub const LANE_STATUS_EMPTY: &str = "Empty";
     pub const LANE_STATUS_ARMED: &str = "ARMED";
     pub const LANE_STATUS_MUTED: &str = "MUTED";
@@ -64,10 +64,13 @@ impl ScreenTrait for DawScreen {
             .split(area);
 
         for (i, chunk) in chunks.iter().enumerate() {
-            let track = &app.tracks[i];
+            let track = &app.session.tracks[i];
             let is_selected = app.selected == i;
 
-            let border_color = if track.state == crate::track::TrackState::Recording {
+            // Show transport state in border color for all tracks when playing
+            let border_color = if app.session.transport.is_playing() && !track.muted && track.wav_data.is_some() {
+                layout_config::SELECTED_BORDER // Show yellow when actively playing
+            } else if track.state == crate::track::TrackState::Recording {
                 layout_config::RECORDING_BORDER
             } else if track.armed {
                 layout_config::ARMED_BORDER
@@ -131,15 +134,31 @@ impl ScreenTrait for DawScreen {
                 }
             }
 
-            KeyCode::Char(' ') => {
-                match app.tracks[app.selected].play() {
+            // Global transport control
+            KeyCode::Char(' ') | KeyCode::Enter => {
+                match app.session.toggle_playback() {
+                    Ok(_) => {
+                        let state = if app.session.transport.is_playing() {
+                            "Playing all tracks"
+                        } else {
+                            "Stopped"
+                        };
+                        app.status = state.to_string();
+                    }
+                    Err(e) => app.status = format!("Playback error: {}", e),
+                }
+            }
+
+            // Individual track playback (solo)
+            KeyCode::Char('p') => {
+                match app.session.tracks[app.selected].play() {
                     Ok(_) => app.status = format!("Playing Track {}", app.selected + 1),
                     Err(e) => app.status = format!("Error playing: {}", e),
                 }
             }
         
             KeyCode::Char('a') => {
-                let track = &mut app.tracks[app.selected];
+                let track = &mut app.session.tracks[app.selected];
                 if track.armed {
                     track.disarm();
                     app.status = format!("Track {} disarmed", app.selected + 1);
@@ -154,7 +173,7 @@ impl ScreenTrait for DawScreen {
             }
             
             KeyCode::Char('r') => {
-                let track = &mut app.tracks[app.selected];
+                let track = &mut app.session.tracks[app.selected];
                 if track.state == crate::track::TrackState::Recording {
                     match track.stop_recording() {
                         Ok(_) => app.status = format!("Track {} stopped recording", app.selected + 1),
@@ -172,7 +191,7 @@ impl ScreenTrait for DawScreen {
             
             KeyCode::Char('M') => {
                 // Toggle monitoring (capital M)
-                let track = &mut app.tracks[app.selected];
+                let track = &mut app.session.tracks[app.selected];
                 if track.armed {
                     if track.monitoring {
                         track.stop_monitoring();
@@ -190,26 +209,26 @@ impl ScreenTrait for DawScreen {
             
             // File operations
             KeyCode::Char('c') => {
-                app.tracks[app.selected].file_path.clear();
-                app.tracks[app.selected].wav_data = None;
+                app.session.tracks[app.selected].file_path.clear();
+                app.session.tracks[app.selected].wav_data = None;
                 app.status = format!("Track {} cleared", app.selected + 1);
             }
             
             // Volume and mute
             KeyCode::Char('m') => {
-                app.tracks[app.selected].muted = !app.tracks[app.selected].muted;
-                let status = if app.tracks[app.selected].muted { "muted" } else { "unmuted" };
+                app.session.tracks[app.selected].muted = !app.session.tracks[app.selected].muted;
+                let status = if app.session.tracks[app.selected].muted { "muted" } else { "unmuted" };
                 app.status = format!("Track {} {}", app.selected + 1, status);
             }
             
             KeyCode::Char('+') | KeyCode::Char('=') => {
-                let track = &mut app.tracks[app.selected];
+                let track = &mut app.session.tracks[app.selected];
                 track.volume = (track.volume + 0.1).min(2.0);
                 app.status = format!("Track {} volume: {:.0}%", app.selected + 1, track.volume * 100.0);
             }
             
             KeyCode::Char('-') => {
-                let track = &mut app.tracks[app.selected];
+                let track = &mut app.session.tracks[app.selected];
                 track.volume = (track.volume - 0.1).max(0.0);
                 app.status = format!("Track {} volume: {:.0}%", app.selected + 1, track.volume * 100.0);
             }

@@ -25,8 +25,9 @@ pub enum Screen {
     AudioPreferences,
 }
 
+use crate::audio_engine::AudioEngine;
 use crate::effects::EffectInstance;
-use crate::track::Track;
+use crate::session::Session;
 use crate::wav::WavFile;
 
 pub struct App {
@@ -37,7 +38,7 @@ pub struct App {
     pub wav_file: Option<WavFile>,
     pub selected_effects: Vec<EffectInstance>,
     pub handle: Option<JoinHandle<()>>,
-    pub tracks: [Track; 3],
+    pub session: Session,
     pub input_mode: bool,
     pub input_buffer: String,
     pub active_parameter_edit: Option<(usize, String)>, // (effect_index, parameter_name)
@@ -49,6 +50,16 @@ pub struct App {
 
 impl App {
     fn new(debug_mode: bool) -> Self {
+        // Get device sample rate to avoid pitch issues
+        let sample_rate = AudioEngine::get_output_device()
+            .map(|d| d.sample_rate)
+            .unwrap_or(48000);
+        
+        let mut session = Session::new("Untitled Project".to_string(), sample_rate);
+        session.add_track("Track 1".to_string());
+        session.add_track("Track 2".to_string());
+        session.add_track("Track 3".to_string());
+        
         App {
             screen: Screen::MainMenu,
             selected: 0,
@@ -57,11 +68,7 @@ impl App {
             wav_file: None,
             selected_effects: vec![],
             handle: None,
-            tracks: [
-                Track::new("Track 1".to_string()),
-                Track::new("Track 2".to_string()),
-                Track::new("Track 3".to_string()),
-            ],
+            session,
             input_mode: false,
             input_buffer: String::new(),
             active_parameter_edit: None,

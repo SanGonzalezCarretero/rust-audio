@@ -36,7 +36,7 @@ impl AppView {
     pub fn render(f: &mut Frame, app: &App) {
         let chunks = Self::create_layout(f.area());
 
-        Self::render_title(f, chunks[0]);
+        Self::render_title(f, app, chunks[0]);
         Self::render_content(f, app, chunks[1]);
         Self::render_status(f, app, chunks[2]);
 
@@ -70,8 +70,9 @@ impl AppView {
         }
     }
 
-    fn render_title(f: &mut Frame, area: Rect) {
-        let title = Paragraph::new(layout_config::TITLE)
+    fn render_title(f: &mut Frame, app: &App, area: Rect) {
+        let title_text = format!("{} - {}", layout_config::TITLE, app.session.name);
+        let title = Paragraph::new(title_text)
             .style(Style::default().fg(layout_config::TITLE_COLOR))
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL));
