@@ -1,6 +1,8 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, Host, SampleRate, StreamConfig};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use crate::ui::DebugLogger;
 
 pub struct AudioDevice {
     pub device: Device,
@@ -13,9 +15,11 @@ impl AudioDevice {
     fn get_host_and_device(is_input: bool) -> Result<(Host, Device), Box<dyn std::error::Error>> {
         let host = cpal::default_host();
         let device = if is_input {
-            host.default_input_device().ok_or("No input device available")?
+            host.default_input_device()
+                .ok_or("No input device available")?
         } else {
-            host.default_output_device().ok_or("No output device available")?
+            host.default_output_device()
+                .ok_or("No output device available")?
         };
         Ok((host, device))
     }
@@ -44,15 +48,13 @@ impl AudioDevice {
             device,
             config,
             sample_rate,
-            channels
+            channels,
         })
     }
 
     pub fn input_by_index(index: usize) -> Result<Self, Box<dyn std::error::Error>> {
         let host = cpal::default_host();
-        let device = host.input_devices()?
-            .nth(index)
-            .ok_or("Device not found")?;
+        let device = host.input_devices()?.nth(index).ok_or("Device not found")?;
         let config: StreamConfig = device.default_input_config()?.into();
         let SampleRate(sample_rate) = config.sample_rate;
         let channels = config.channels;
@@ -67,7 +69,8 @@ impl AudioDevice {
 
     pub fn output_by_index(index: usize) -> Result<Self, Box<dyn std::error::Error>> {
         let host = cpal::default_host();
-        let device = host.output_devices()?
+        let device = host
+            .output_devices()?
             .nth(index)
             .ok_or("Device not found")?;
         let config: StreamConfig = device.default_output_config()?.into();
@@ -84,14 +87,16 @@ impl AudioDevice {
 
     pub fn list_input_devices() -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let host = cpal::default_host();
-        Ok(host.input_devices()?
+        Ok(host
+            .input_devices()?
             .filter_map(|d| d.name().ok())
             .collect())
     }
 
     pub fn list_output_devices() -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let host = cpal::default_host();
-        Ok(host.output_devices()?
+        Ok(host
+            .output_devices()?
             .filter_map(|d| d.name().ok())
             .collect())
     }
