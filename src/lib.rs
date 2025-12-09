@@ -1,3 +1,4 @@
+pub mod audio_context;
 pub mod device;
 pub mod effects;
 pub mod input;

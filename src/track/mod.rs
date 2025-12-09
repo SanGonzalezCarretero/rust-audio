@@ -1,3 +1,4 @@
+use crate::audio_context::AudioContext;
 use crate::device::AudioDevice;
 use crate::effects::EffectInstance;
 use crate::wav::WavFile;
@@ -26,9 +27,6 @@ pub struct Track {
     pub armed: bool,
     pub monitoring: bool,
     pub state: TrackState,
-    
-    // Input source
-    pub input_device_index: Option<usize>,
     
     // FX chain
     pub fx_chain: Vec<EffectInstance>,
@@ -62,7 +60,6 @@ impl Track {
             armed: false,
             monitoring: false,
             state: TrackState::Idle,
-            input_device_index: None,
             fx_chain: vec![],
             monitor_buffer: Arc::new(Mutex::new(vec![0.0; MONITOR_BUFFER_SAMPLES])),
             wav_data: None,
@@ -78,9 +75,8 @@ impl Track {
         }
     }
     
-    pub fn arm(&mut self, input_device_index: Option<usize>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn arm(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.armed = true;
-        self.input_device_index = input_device_index;
         self.state = TrackState::Armed;
         
         self.start_monitoring()?;
@@ -99,10 +95,14 @@ impl Track {
             return Err("Track must be armed to monitor".into());
         }
         
-        let input_device = if let Some(idx) = self.input_device_index {
-            AudioDevice::input_by_index(idx)?
-        } else {
-            AudioDevice::default_input()?
+        let input_device = {
+            let ctx = AudioContext::global();
+            let ctx = ctx.lock().unwrap();
+            if let Some(name) = &ctx.selected_input_device {
+                AudioDevice::input_by_name(name)?
+            } else {
+                AudioDevice::default_input()?
+            }
         };
         
         let output_device = AudioDevice::default_output()?;
@@ -179,10 +179,14 @@ impl Track {
             return Err("Track must be armed to record".into());
         }
          
-        let input_device = if let Some(idx) = self.input_device_index {
-            AudioDevice::input_by_index(idx)?
-        } else {
-            AudioDevice::default_input()?
+        let input_device = {
+            let ctx = AudioContext::global();
+            let ctx = ctx.lock().unwrap();
+            if let Some(name) = &ctx.selected_input_device {
+                AudioDevice::input_by_name(name)?
+            } else {
+                AudioDevice::default_input()?
+            }
         };
         
         let mut config = input_device.config.clone();
@@ -280,10 +284,18 @@ impl Track {
             .iter()
             .map(|&s| s * self.volume)
             .collect();
+        
+        let output_device = {
+            let ctx = AudioContext::global();
+            let ctx = ctx.lock().unwrap();
+            ctx.selected_output_device.clone()
+        };
+        
         AudioDevice::play_audio(
             samples,
             wav.header.sample_rate,
             wav.header.num_channels,
+            output_device,
         );
         Ok(())
     }

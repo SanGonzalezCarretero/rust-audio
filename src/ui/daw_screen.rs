@@ -144,8 +144,10 @@ impl ScreenTrait for DawScreen {
                     track.disarm();
                     app.status = format!("Track {} disarmed", app.selected + 1);
                 } else {
-                    match track.arm(None) {
-                        Ok(_) => app.status = format!("Track {} armed (default input)", app.selected + 1),
+                    match track.arm() {
+                        Ok(_) => {
+                            app.status = format!("Track {} armed", app.selected + 1);
+                        },
                         Err(e) => app.status = format!("Error arming track: {}", e),
                     }
                 }
