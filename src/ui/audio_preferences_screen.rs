@@ -1,6 +1,6 @@
 use super::screen_trait::ScreenTrait;
 use super::{App, Screen};
-use crate::audio_context::AudioContext;
+use crate::audio_engine::AudioEngine;
 use crossterm::event::KeyCode;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
@@ -22,16 +22,16 @@ impl ScreenTrait for AudioPreferencesScreen {
             ])
             .split(area);
 
-        let ctx = AudioContext::global();
+        let ctx = AudioEngine::global();
         let ctx = ctx.lock().unwrap();
 
         let input_items: Vec<ListItem> = ctx
-            .input_devices
+            .input_devices()
             .iter()
             .enumerate()
             .map(|(i, name)| {
                 let is_selected = app.selected == 0 && i == app.audio_prefs_input_selected;
-                let is_active = ctx.selected_input_device.as_ref() == Some(name);
+                let is_active = ctx.selected_input() == Some(name.as_str());
 
                 let style = if is_selected {
                     Style::default().fg(Color::Black).bg(Color::Green)
@@ -52,12 +52,12 @@ impl ScreenTrait for AudioPreferencesScreen {
             .collect();
 
         let output_items: Vec<ListItem> = ctx
-            .output_devices
+            .output_devices()
             .iter()
             .enumerate()
             .map(|(i, name)| {
                 let is_selected = app.selected == 1 && i == app.audio_prefs_output_selected;
-                let is_active = ctx.selected_output_device.as_ref() == Some(name);
+                let is_active = ctx.selected_output() == Some(name.as_str());
 
                 let style = if is_selected {
                     Style::default().fg(Color::Black).bg(Color::Green)
@@ -111,8 +111,8 @@ impl ScreenTrait for AudioPreferencesScreen {
         app: &mut App,
         key: KeyCode,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let ctx = AudioContext::global();
-        let mut ctx = ctx.lock().unwrap();
+        let engine = AudioEngine::global();
+        let mut engine = engine.lock().unwrap();
 
         match key {
             KeyCode::Up => {
@@ -124,12 +124,12 @@ impl ScreenTrait for AudioPreferencesScreen {
             }
             KeyCode::Down => {
                 if app.selected == 0 {
-                    let max = ctx.input_devices.len();
+                    let max = engine.input_devices().len();
                     if app.audio_prefs_input_selected < max.saturating_sub(1) {
                         app.audio_prefs_input_selected += 1;
                     }
                 } else if app.selected == 1 {
-                    let max = ctx.output_devices.len();
+                    let max = engine.output_devices().len();
                     if app.audio_prefs_output_selected < max.saturating_sub(1) {
                         app.audio_prefs_output_selected += 1;
                     }
@@ -137,14 +137,14 @@ impl ScreenTrait for AudioPreferencesScreen {
             }
             KeyCode::Enter => {
                 if app.selected == 0 {
-                    if let Some(device) = ctx.input_devices.get(app.audio_prefs_input_selected).cloned()
+                    if let Some(device) = engine.input_devices().get(app.audio_prefs_input_selected).cloned()
                     {
-                        ctx.set_input_device(device);
+                        engine.set_input_device(device);
                     }
                 } else if app.selected == 1 {
-                    if let Some(device) = ctx.output_devices.get(app.audio_prefs_output_selected).cloned()
+                    if let Some(device) = engine.output_devices().get(app.audio_prefs_output_selected).cloned()
                     {
-                        ctx.set_output_device(device);
+                        engine.set_output_device(device);
                     }
                 }
             }
@@ -152,7 +152,7 @@ impl ScreenTrait for AudioPreferencesScreen {
                 app.selected = if app.selected == 0 { 1 } else { 0 };
             }
             KeyCode::Char('r') | KeyCode::Char('R') => {
-                let _ = ctx.refresh_devices();
+                engine.refresh_devices();
             }
             KeyCode::Esc => {
                 app.screen = Screen::MainMenu;

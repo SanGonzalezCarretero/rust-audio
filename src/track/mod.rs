@@ -1,4 +1,4 @@
-use crate::audio_context::AudioContext;
+use crate::audio_engine::AudioEngine;
 use crate::device::AudioDevice;
 use crate::effects::EffectInstance;
 use crate::wav::WavFile;
@@ -95,15 +95,8 @@ impl Track {
             return Err("Track must be armed to monitor".into());
         }
         
-        let input_device = {
-            let ctx = AudioContext::global();
-            let ctx = ctx.lock().unwrap();
-            if let Some(name) = &ctx.selected_input_device {
-                AudioDevice::input_by_name(name)?
-            } else {
-                AudioDevice::default_input()?
-            }
-        };
+        // Use AudioEngine for device selection
+        let input_device = AudioEngine::get_input_device()?;
         
         let output_device = AudioDevice::default_output()?;
 
@@ -179,15 +172,8 @@ impl Track {
             return Err("Track must be armed to record".into());
         }
          
-        let input_device = {
-            let ctx = AudioContext::global();
-            let ctx = ctx.lock().unwrap();
-            if let Some(name) = &ctx.selected_input_device {
-                AudioDevice::input_by_name(name)?
-            } else {
-                AudioDevice::default_input()?
-            }
-        };
+        // Use AudioEngine for device selection
+        let input_device = AudioEngine::get_input_device()?;
         
         let mut config = input_device.config.clone();
         let sample_rate = config.sample_rate.0;
@@ -285,10 +271,11 @@ impl Track {
             .map(|&s| s * self.volume)
             .collect();
         
+        // Use AudioEngine for device selection
         let output_device = {
-            let ctx = AudioContext::global();
-            let ctx = ctx.lock().unwrap();
-            ctx.selected_output_device.clone()
+            let engine = AudioEngine::global();
+            let engine = engine.lock().unwrap();
+            engine.selected_output().map(|s| s.to_string())
         };
         
         AudioDevice::play_audio(
