@@ -4,7 +4,6 @@ use std::time::Duration;
 use super::daw_screen::DawScreen;
 use super::effects_screen::EffectsScreen;
 use super::main_menu_screen::MainMenuScreen;
-use super::record_mic_screen::RecordMicScreen;
 use super::audio_preferences_screen::AudioPreferencesScreen;
 use super::screen_trait::ScreenTrait;
 use super::{App, Screen};
@@ -71,7 +70,6 @@ impl AppEventHandler {
     ) -> Result<bool, Box<dyn std::error::Error>> {
         match app.screen {
             Screen::MainMenu => MainMenuScreen.handle_input(app, key),
-            Screen::RecordMic => RecordMicScreen.handle_input(app, key),
             Screen::Effects => EffectsScreen.handle_input(app, key),
             Screen::Daw => DawScreen.handle_input(app, key),
             Screen::AudioPreferences => AudioPreferencesScreen.handle_input(app, key),

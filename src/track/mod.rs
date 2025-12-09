@@ -95,7 +95,6 @@ impl Track {
             return Err("Track must be armed to monitor".into());
         }
         
-        // Use AudioEngine for device selection
         let input_device = AudioEngine::get_input_device()?;
         
         let output_device = AudioDevice::default_output()?;
@@ -115,7 +114,6 @@ impl Track {
         
         let monitor_buffer = Arc::clone(&self.monitor_buffer);
         
-        // Input callback
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             if let Ok(mut buffer) = monitor_buffer.try_lock() {
                 buffer.truncate(0);
@@ -125,7 +123,6 @@ impl Track {
             let _ = producer.push_slice(data);
         };
         
-        // Output callback 
         let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
             let popped = consumer.pop_slice(data);
 
@@ -160,7 +157,6 @@ impl Track {
         Ok(())
     }
 
-    /// Stop monitoring
     pub fn stop_monitoring(&mut self) {
         self.input_stream = None;
         self.output_stream = None;
@@ -172,7 +168,6 @@ impl Track {
             return Err("Track must be armed to record".into());
         }
          
-        // Use AudioEngine for device selection
         let input_device = AudioEngine::get_input_device()?;
         
         let mut config = input_device.config.clone();
@@ -186,15 +181,12 @@ impl Track {
         
         let monitor_buffer = Arc::clone(&self.monitor_buffer);
         
-        // Input callback - captures audio and updates monitor
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            // Update monitor buffer for visualization
             if let Ok(mut buffer) = monitor_buffer.try_lock() {
                 buffer.truncate(0);
                 buffer.extend_from_slice(data);
             }
             
-            // Accumulate samples for recording
             if let Ok(mut samples) = recorded_samples_clone.try_lock() {
                 samples.extend_from_slice(data);
             }
@@ -209,7 +201,6 @@ impl Track {
         self.input_stream = Some(input_stream);
         self.state = TrackState::Recording;
         
-        // Store the recorded samples buffer for later retrieval in stop_recording
         self.recording_buffer = Some(recorded_samples);
         self.recording_channels = Some(config.channels);
         self.recording_sample_rate = Some(sample_rate);
@@ -271,7 +262,6 @@ impl Track {
             .map(|&s| s * self.volume)
             .collect();
         
-        // Use AudioEngine for device selection
         let output_device = {
             let engine = AudioEngine::global();
             let engine = engine.lock().unwrap();
