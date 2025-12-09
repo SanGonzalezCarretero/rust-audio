@@ -213,11 +213,9 @@ impl Track {
             return Err("Not currently recording".into());
         }
 
-        // Stop the input stream
         self.input_stream = None;
         self.output_stream = None;
         
-        // Retrieve and process the recorded samples
         if let Some(buffer) = self.recording_buffer.take() {
             if let Ok(samples) = buffer.lock() {
                 if !samples.is_empty() {
