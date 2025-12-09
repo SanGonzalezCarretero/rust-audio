@@ -211,6 +211,7 @@ impl ScreenTrait for DawScreen {
                         wav.header.sample_rate,
                         wav.header.num_channels,
                         playback_position,
+                        Arc::new(app.debug_logger.clone()),
                     );
 
                     app.status = "Playing Lane 1".to_string();
@@ -232,6 +233,7 @@ impl ScreenTrait for DawScreen {
                         wav.header.sample_rate,
                         wav.header.num_channels,
                         playback_position,
+                        Arc::new(app.debug_logger.clone()),
                     );
 
                     app.status = "Playing Lane 2".to_string();
