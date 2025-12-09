@@ -121,10 +121,10 @@ impl AudioDevice {
                 let total_samples = samples.len();
                 let position_update = Arc::clone(&playback_position);
                 let mut sample_idx = 0;
-                let debug_logger_clone = debug_logger.clone();
+                let logger = debug_logger.clone();
 
                 let err_fn = move |err: cpal::StreamError| {
-                    debug_logger_clone.log(format!("Stream error: {}", err));
+                    logger.log(format!("Stream error: {}", err));
                 };
 
                 if let Ok(stream) = device.build_output_stream(
