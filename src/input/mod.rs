@@ -41,7 +41,7 @@ pub fn record_input_device(
         producer.try_push(0.0).unwrap();
     }
 
-    let debug_logger_clone = debug_logger.clone();
+    let logger = debug_logger.clone();
     let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
         let mut output_fell_behind = false;
         for &sample in data {
@@ -50,11 +50,11 @@ pub fn record_input_device(
             }
         }
         if output_fell_behind {
-            debug_logger_clone.log("output stream fell behind: try increasing latency".to_string());
+            logger.log("output stream fell behind: try increasing latency".to_string());
         }
     };
 
-    let debug_logger_clone2 = debug_logger.clone();
+    let logger = debug_logger.clone();
     let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
         let mut input_fell_behind = false;
         for sample in data {
@@ -67,13 +67,13 @@ pub fn record_input_device(
             };
         }
         if input_fell_behind {
-            debug_logger_clone2.log("input stream fell behind: try increasing latency".to_string());
+            logger.log("input stream fell behind: try increasing latency".to_string());
         }
     };
 
-    let debug_logger_clone3 = debug_logger.clone();
+    let logger = debug_logger.clone();
     let err_fn = move |err: cpal::StreamError| {
-        debug_logger_clone3.log(format!("Stream error: {err}"));
+        logger.log(format!("Stream error: {err}"));
     };
 
     let input_stream =
