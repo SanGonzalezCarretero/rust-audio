@@ -7,7 +7,8 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem},
     Frame,
 };
-use std::{fs, thread};
+use std::sync::Arc;
+use std::thread;
 
 mod layout_config {
     use ratatui::style::Color;
@@ -92,11 +93,11 @@ impl ScreenTrait for RecordMicScreen {
 
                 let duration: u64 = app.record_duration.parse().unwrap_or(10);
                 app.status = format!("Recording {} seconds...", duration);
-                let selected_effects = app.selected_effects.clone();
                 let device_index = app.audio_prefs_input_selected;
+                let debug_logger = Arc::new(app.debug_logger.clone());
 
                 app.handle = Some(thread::spawn(move || {
-                    let _ = crate::input::record_input_device(duration, device_index);
+                    let _ = crate::input::record_input_device(duration, device_index, debug_logger);
                 }));
             }
             _ => {}

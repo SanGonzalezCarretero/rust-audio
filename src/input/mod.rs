@@ -1,24 +1,29 @@
-use crate::device::AudioDevice;
-use cpal::BufferSize;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use ringbuf::HeapRb;
+use cpal::BufferSize;
 use ringbuf::traits::{Consumer, Producer, Split};
+use ringbuf::HeapRb;
+use std::sync::Arc;
 use std::time::Duration;
+
+use crate::ui::DebugLogger;
 
 const LATENCY_MS: f32 = 300.0;
 
 pub fn record_input_device(
     duration_secs: u64,
-    device_index: usize,
+    _device_index: usize,
+    debug_logger: Arc<DebugLogger>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let host = cpal::default_host();
 
-    let input_device = host.input_devices()?
+    let input_device = host
+        .input_devices()?
         .find(|d| d.name().map(|n| n.contains("Scarlett")).unwrap_or(false))
         .or_else(|| host.default_input_device())
         .expect("No input device found");
-    
-    let output_device = host.output_devices()?
+
+    let output_device = host
+        .output_devices()?
         .find(|d| d.name().map(|n| n.contains("Scarlett")).unwrap_or(false))
         .or_else(|| host.default_output_device())
         .expect("No output device found");
@@ -36,7 +41,8 @@ pub fn record_input_device(
         producer.try_push(0.0).unwrap();
     }
 
-     let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+    let debug_logger_clone = debug_logger.clone();
+    let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
         let mut output_fell_behind = false;
         for &sample in data {
             if producer.try_push(sample).is_err() {
@@ -44,10 +50,11 @@ pub fn record_input_device(
             }
         }
         if output_fell_behind {
-            eprintln!("output stream fell behind: try increasing latency");
+            debug_logger_clone.log("output stream fell behind: try increasing latency".to_string());
         }
     };
 
+    let debug_logger_clone2 = debug_logger.clone();
     let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
         let mut input_fell_behind = false;
         for sample in data {
@@ -60,22 +67,24 @@ pub fn record_input_device(
             };
         }
         if input_fell_behind {
-            eprintln!("input stream fell behind: try increasing latency");
+            debug_logger_clone2.log("input stream fell behind: try increasing latency".to_string());
         }
     };
 
-    let input_stream = input_device.build_input_stream(&config, input_data_fn, err_fn, None)?;
+    let debug_logger_clone3 = debug_logger.clone();
+    let err_fn = move |err: cpal::StreamError| {
+        debug_logger_clone3.log(format!("Stream error: {err}"));
+    };
+
+    let input_stream =
+        input_device.build_input_stream(&config, input_data_fn, err_fn.clone(), None)?;
     let output_stream = output_device.build_output_stream(&config, output_data_fn, err_fn, None)?;
-    
+
     input_stream.play()?;
     output_stream.play()?;
     std::thread::sleep(Duration::from_secs(duration_secs));
     drop(input_stream);
     drop(output_stream);
-    
-    Ok(())
-}
 
-fn err_fn(err: cpal::StreamError) {
-    eprintln!("Stream error: {err}");
+    Ok(())
 }
