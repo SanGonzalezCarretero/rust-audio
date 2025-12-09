@@ -10,6 +10,9 @@ pub struct AudioEngine {
     selected_output: Option<String>,
 }
 
+const DEFAULT_INPUT_DEVICE_NAME: &str = "Micrófono de MacBook Pro";
+const DEFAULT_OUTPUT_DEVICE_NAME: &str = "Bocinas de MacBook Pro";
+
 impl AudioEngine {
     pub fn global() -> Arc<Mutex<AudioEngine>> {
         AUDIO_ENGINE
@@ -21,8 +24,17 @@ impl AudioEngine {
         let input_devices = AudioDevice::list_input_devices().unwrap_or_default();
         let output_devices = AudioDevice::list_output_devices().unwrap_or_default();
 
-        let selected_input = input_devices.first().cloned();
-        let selected_output = output_devices.first().cloned();
+        let selected_input = input_devices
+            .iter()
+            .find(|name| name.contains(DEFAULT_INPUT_DEVICE_NAME))
+            .cloned()
+            .or_else(|| input_devices.first().cloned());
+
+        let selected_output = output_devices
+            .iter()
+            .find(|name| name.contains(DEFAULT_OUTPUT_DEVICE_NAME))
+            .cloned()
+            .or_else(|| output_devices.first().cloned());
 
         AudioEngine {
             input_devices,
@@ -71,15 +83,23 @@ impl AudioEngine {
         self.input_devices = AudioDevice::list_input_devices().unwrap_or_default();
         self.output_devices = AudioDevice::list_output_devices().unwrap_or_default();
 
-        // Revalidate selections
+        // Revalidate selections - prefer MacBook Pro built-in devices if current selection is unavailable
         if let Some(input) = &self.selected_input {
             if !self.input_devices.contains(input) {
-                self.selected_input = self.input_devices.first().cloned();
+                self.selected_input = self.input_devices
+                    .iter()
+                    .find(|name| name.contains("Micrófono de MacBook Pro"))
+                    .cloned()
+                    .or_else(|| self.input_devices.first().cloned());
             }
         }
         if let Some(output) = &self.selected_output {
             if !self.output_devices.contains(output) {
-                self.selected_output = self.output_devices.first().cloned();
+                self.selected_output = self.output_devices
+                    .iter()
+                    .find(|name| name.contains("Bocinas de MacBook Pro"))
+                    .cloned()
+                    .or_else(|| self.output_devices.first().cloned());
             }
         }
     }
