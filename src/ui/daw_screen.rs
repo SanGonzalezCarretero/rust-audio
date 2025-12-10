@@ -58,7 +58,6 @@ pub struct DawScreen;
 
 impl ScreenTrait for DawScreen {
     fn render(&self, f: &mut Frame, app: &App, area: Rect) {
-        // Split for progress bar at top
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -67,12 +66,10 @@ impl ScreenTrait for DawScreen {
             ])
             .split(area);
 
-        // Render progress bar
-        let progress = app.session.playback_progress();
         let is_playing = app.session.transport.is_playing();
         
         let label = if is_playing {
-            format!("▶ Playing {:.0}%", progress * 100.0)
+            "▶ Playing".to_string()
         } else {
             "⏹ Stopped".to_string()
         };
@@ -80,12 +77,10 @@ impl ScreenTrait for DawScreen {
         let gauge = Gauge::default()
             .block(Block::default().borders(Borders::ALL).title("Transport"))
             .gauge_style(Style::default().fg(if is_playing { Color::Green } else { Color::Gray }))
-            .label(label)
-            .ratio(progress);
+            .label(label);
         
         f.render_widget(gauge, main_chunks[0]);
 
-        // Split tracks area
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(layout_config::get_lane_constraints())
@@ -95,7 +90,6 @@ impl ScreenTrait for DawScreen {
             let track = &app.session.tracks[i];
             let is_selected = app.selected == i;
 
-            // Show transport state in border color for all tracks when playing
             let border_color = if app.session.transport.is_playing() && !track.muted && track.wav_data.is_some() {
                 layout_config::SELECTED_BORDER // Show yellow when actively playing
             } else if track.state == crate::track::TrackState::Recording {
