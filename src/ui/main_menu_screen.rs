@@ -15,7 +15,7 @@ mod layout_config {
     pub const SELECTED_FG: Color = Color::Black;
     pub const SELECTED_BG: Color = Color::Green;
     pub const DEFAULT_FG: Color = Color::White;
-    pub const MENU_ITEMS: &[&str] = &["Record Microphone", "Select Effects", "Daw", "Audio Preferences", "Quit"];
+    pub const MENU_ITEMS: &[&str] = &["Select Effects", "Daw", "Audio Preferences", "Quit"];
 }
 
 pub struct MainMenuScreen;
@@ -64,22 +64,18 @@ impl ScreenTrait for MainMenuScreen {
             KeyCode::Enter => {
                 match app.selected {
                     0 => {
-                        app.screen = Screen::RecordMic;
-                        app.selected = 0;
-                    }
-                    1 => {
                         app.screen = Screen::Effects;
                         app.selected = 0;
                     }
-                    2 => {
+                    1 => {
                         app.screen = Screen::Daw;
                         app.selected = 0;
                     }
-                    3 => {
+                    2 => {
                         app.screen = Screen::AudioPreferences;
                         app.selected = 0;
                     }
-                    4 => return Ok(true), // Quit
+                    3 => return Ok(true), // Quit
                     _ => {}
                 }
             }

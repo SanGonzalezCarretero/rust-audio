@@ -1,4 +1,3 @@
-use rust_audio::input;
 use rust_audio::processor::{FrequencyEffect, Processor};
 use rust_audio::wav::WavFile;
 use std::fs;

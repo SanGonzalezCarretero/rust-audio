@@ -101,55 +101,86 @@ impl AudioDevice {
             .collect())
     }
 
-    pub fn play_audio(
-        samples: Vec<f64>,
-        sample_rate: u32,
-        channels: u16,
-        playback_position: Arc<std::sync::Mutex<f64>>,
-        debug_logger: Arc<DebugLogger>,
-    ) {
-        std::thread::spawn(move || {
-            if let Ok((_, device)) = Self::get_host_and_device(false) {
-                let config = StreamConfig {
-                    channels,
-                    sample_rate: SampleRate(sample_rate),
-                    buffer_size: cpal::BufferSize::Default,
-                };
+    pub fn input_by_name(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let host = cpal::default_host();
+        let device = host.input_devices()?
+            .find(|d| d.name().ok().as_deref() == Some(name))
+            .ok_or("Device not found")?;
+        let config: StreamConfig = device.default_input_config()?.into();
+        let SampleRate(sample_rate) = config.sample_rate;
+        let channels = config.channels;
 
-                let samples = Arc::new(samples);
-                let samples_clone = Arc::clone(&samples);
-                let total_samples = samples.len();
-                let position_update = Arc::clone(&playback_position);
-                let mut sample_idx = 0;
-                let logger = debug_logger.clone();
-
-                let err_fn = move |err: cpal::StreamError| {
-                    logger.log(format!("Stream error: {}", err));
-                };
-
-                if let Ok(stream) = device.build_output_stream(
-                    &config,
-                    move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                        for frame in data.iter_mut() {
-                            *frame = if sample_idx < samples_clone.len() {
-                                samples_clone[sample_idx] as f32
-                            } else {
-                                0.0
-                            };
-                            sample_idx += 1;
-                        }
-                        if let Ok(mut pos) = position_update.lock() {
-                            *pos = sample_idx as f64 / total_samples as f64;
-                        }
-                    },
-                    err_fn,
-                    None,
-                ) {
-                    let _ = stream.play();
-                    let duration = total_samples as f64 / sample_rate as f64;
-                    std::thread::sleep(std::time::Duration::from_secs_f64(duration));
-                }
-            }
-        });
+        Ok(Self {
+            device,
+            config,
+            sample_rate,
+            channels,
+        })
     }
+
+    pub fn output_by_name(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let host = cpal::default_host();
+        let device = host.output_devices()?
+            .find(|d| d.name().ok().as_deref() == Some(name))
+            .ok_or("Device not found")?;
+        let config: StreamConfig = device.default_output_config()?.into();
+        let SampleRate(sample_rate) = config.sample_rate;
+        let channels = config.channels;
+
+        Ok(Self {
+            device,
+            config,
+            sample_rate,
+            channels,
+        })
+    }
+
+    pub fn play_audio(samples: Vec<f64>, sample_rate: u32, channels: u16, output_device_name: Option<String>) {
+    std::thread::spawn(move || {
+        let device = if let Some(name) = output_device_name {
+            if let Ok(audio_device) = Self::output_by_name(&name) {
+                audio_device.device
+            } else if let Ok((_, dev)) = Self::get_host_and_device(false) {
+                dev
+            } else {
+                return;
+            }
+        } else if let Ok((_, dev)) = Self::get_host_and_device(false) {
+            dev
+        } else {
+            return;
+        };
+
+        let config = StreamConfig {
+            channels,
+            sample_rate: SampleRate(sample_rate),
+            buffer_size: cpal::BufferSize::Default,
+        };
+            
+            let samples = Arc::new(samples);
+            let samples_clone = Arc::clone(&samples);
+            let total_samples = samples.len();
+            let mut sample_idx = 0;
+            
+            if let Ok(stream) = device.build_output_stream(
+                &config,
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    for frame in data.iter_mut() {
+                        *frame = if sample_idx < samples_clone.len() {
+                            samples_clone[sample_idx] as f32
+                        } else {
+                            0.0
+                        };
+                        sample_idx += 1;
+                    }
+                },
+                |err| eprintln!("Stream error: {}", err),
+                None
+            ) {
+                let _ = stream.play();
+                let duration = total_samples as f64 / sample_rate as f64;
+                std::thread::sleep(std::time::Duration::from_secs_f64(duration));
+            }
+    });
+}
 }
