@@ -1,9 +1,9 @@
 
 use crossterm::event::KeyCode;
 use ratatui::{
-    layout::{Direction, Layout, Rect},
-    style::Style,
-    widgets::{Block, Borders, List, ListItem, Sparkline},
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
+    widgets::{Block, Borders, Gauge, List, ListItem, Sparkline},
     Frame,
 };
 
@@ -58,10 +58,38 @@ pub struct DawScreen;
 
 impl ScreenTrait for DawScreen {
     fn render(&self, f: &mut Frame, app: &App, area: Rect) {
+        // Split for progress bar at top
+        let main_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Progress bar
+                Constraint::Min(10),   // Tracks
+            ])
+            .split(area);
+
+        // Render progress bar
+        let progress = app.session.playback_progress();
+        let is_playing = app.session.transport.is_playing();
+        
+        let label = if is_playing {
+            format!("▶ Playing {:.0}%", progress * 100.0)
+        } else {
+            "⏹ Stopped".to_string()
+        };
+        
+        let gauge = Gauge::default()
+            .block(Block::default().borders(Borders::ALL).title("Transport"))
+            .gauge_style(Style::default().fg(if is_playing { Color::Green } else { Color::Gray }))
+            .label(label)
+            .ratio(progress);
+        
+        f.render_widget(gauge, main_chunks[0]);
+
+        // Split tracks area
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(layout_config::get_lane_constraints())
-            .split(area);
+            .split(main_chunks[1]);
 
         for (i, chunk) in chunks.iter().enumerate() {
             let track = &app.session.tracks[i];
@@ -115,7 +143,6 @@ impl ScreenTrait for DawScreen {
             }
         }
     }
-
 
     fn handle_input(
         &self,
