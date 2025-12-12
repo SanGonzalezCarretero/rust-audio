@@ -266,12 +266,60 @@ impl Track {
             engine.selected_output().map(|s| s.to_string())
         };
         
-        AudioDevice::play_audio(
-            samples,
-            wav.header.sample_rate,
-            wav.header.num_channels,
-            output_device,
-        );
+        let sample_rate = wav.header.sample_rate;
+        let channels = wav.header.num_channels;
+        
+        // Spawn thread for non-blocking playback
+        std::thread::spawn(move || {
+            use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+            use cpal::{SampleRate, StreamConfig};
+            
+            let device = if let Some(name) = output_device_name {
+                if let Ok(audio_device) = AudioDevice::output_by_name(&name) {
+                    audio_device.device
+                } else if let Ok(audio_device) = AudioDevice::default_output() {
+                    audio_device.device
+                } else {
+                    return;
+                }
+            } else if let Ok(audio_device) = AudioDevice::default_output() {
+                audio_device.device
+            } else {
+                return;
+            };
+
+            let config = StreamConfig {
+                channels,
+                sample_rate: SampleRate(sample_rate),
+                buffer_size: cpal::BufferSize::Default,
+            };
+                
+            let samples = Arc::new(samples);
+            let samples_clone = Arc::clone(&samples);
+            let total_samples = samples.len();
+            let mut sample_idx = 0;
+            
+            if let Ok(stream) = device.build_output_stream(
+                &config,
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    for frame in data.iter_mut() {
+                        *frame = if sample_idx < samples_clone.len() {
+                            samples_clone[sample_idx] as f32
+                        } else {
+                            0.0
+                        };
+                        sample_idx += 1;
+                    }
+                },
+                |err| eprintln!("Stream error: {}", err),
+                None
+            ) {
+                let _ = stream.play();
+                let duration = total_samples as f64 / sample_rate as f64;
+                std::thread::sleep(std::time::Duration::from_secs_f64(duration));
+            }
+        });
+        
         Ok(())
     }
 }
