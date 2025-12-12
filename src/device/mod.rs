@@ -1,8 +1,5 @@
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, Host, SampleRate, StreamConfig};
-use std::sync::Arc;
-
-use crate::ui::DebugLogger;
 
 pub struct AudioDevice {
     pub device: Device,

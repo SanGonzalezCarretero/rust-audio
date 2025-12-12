@@ -271,10 +271,9 @@ impl Track {
         
         // Spawn thread for non-blocking playback
         std::thread::spawn(move || {
-            use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
             use cpal::{SampleRate, StreamConfig};
             
-            let device = if let Some(name) = output_device_name {
+            let device = if let Some(name) = output_device {
                 if let Ok(audio_device) = AudioDevice::output_by_name(&name) {
                     audio_device.device
                 } else if let Ok(audio_device) = AudioDevice::default_output() {
