@@ -1,0 +1,21 @@
+{
+  // Format on save
+  "editor.formatOnSave": true,
+  
+  // Rust-specific settings
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": true
+  },
+  
+  // Rust Analyzer settings
+  // Note: Clippy must be installed via: rustup component add clippy
+  // Run ./setup.sh to ensure all tools are installed
+  "rust-analyzer.checkOnSave": true,
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.extraArgs": ["--", "-W", "clippy::all"],
+  
+  // Enable rustfmt on save
+  "rust-analyzer.rustfmt.extraArgs": [],
+  "rust-analyzer.rustfmt.enableRangeFormatting": true
+}
