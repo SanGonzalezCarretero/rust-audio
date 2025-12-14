@@ -2,6 +2,27 @@
 
 An audio processing library written in Rust.
 
+## Development Setup
+
+Before contributing to this project, ensure you have all required development tools installed:
+
+```bash
+# Run the setup script to install clippy and rustfmt
+./setup.sh
+```
+
+Or manually install the required components:
+
+```bash
+rustup component add clippy rustfmt
+```
+
+**Important:** This project uses format-on-save and clippy checks in VSCode/Cursor. Make sure you have:
+- The [Rust Analyzer extension](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer) installed
+- Clippy and rustfmt installed (run `./setup.sh`)
+
+The project includes shared VSCode/Cursor settings in `.vscode/settings.json` that will automatically format your code on save and run clippy checks.
+
 ## Supported Formats
 
 - **WAV files only** (16-bit PCM currently supported)
