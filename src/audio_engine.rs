@@ -1,4 +1,4 @@
-use crate::device::AudioDevice;
+use crate::device::{AudioDevice, DeviceProvider};
 use std::sync::{Arc, Mutex, OnceLock};
 
 static AUDIO_ENGINE: OnceLock<Arc<Mutex<AudioEngine>>> = OnceLock::new();
@@ -21,8 +21,8 @@ impl AudioEngine {
     }
 
     fn new() -> Self {
-        let input_devices = AudioDevice::list_input_devices().unwrap_or_default();
-        let output_devices = AudioDevice::list_output_devices().unwrap_or_default();
+        let input_devices = AudioDevice::INPUT.list().unwrap_or_default();
+        let output_devices = AudioDevice::OUTPUT.list().unwrap_or_default();
 
         let selected_input = input_devices
             .iter()
@@ -80,8 +80,8 @@ impl AudioEngine {
 
     /// Refresh the list of available devices
     pub fn refresh_devices(&mut self) {
-        self.input_devices = AudioDevice::list_input_devices().unwrap_or_default();
-        self.output_devices = AudioDevice::list_output_devices().unwrap_or_default();
+        self.input_devices = AudioDevice::INPUT.list().unwrap_or_default();
+        self.output_devices = AudioDevice::OUTPUT.list().unwrap_or_default();
 
         // Revalidate selections - prefer MacBook Pro built-in devices if current selection is unavailable
         if let Some(input) = &self.selected_input {
@@ -112,9 +112,9 @@ impl AudioEngine {
         let engine = engine.lock().unwrap();
 
         if let Some(name) = &engine.selected_input {
-            AudioDevice::input_by_name(name)
+            AudioDevice::INPUT.by_name(name)
         } else {
-            AudioDevice::default_input()
+            AudioDevice::INPUT.default()
         }
     }
 
@@ -124,9 +124,9 @@ impl AudioEngine {
         let engine = engine.lock().unwrap();
 
         if let Some(name) = &engine.selected_output {
-            AudioDevice::output_by_name(name)
+            AudioDevice::OUTPUT.by_name(name)
         } else {
-            AudioDevice::default_output()
+            AudioDevice::OUTPUT.default()
         }
     }
 }
