@@ -52,12 +52,12 @@ impl Processor {
         samples.iter().map(|&x| Complex64::new(x, 0.0)).collect()
     }
 
-    fn forward_fft(&mut self, buffer: &mut Vec<Complex64>) {
+    fn forward_fft(&mut self, buffer: &mut [Complex64]) {
         let fft = self.fft_planner.plan_fft_forward(buffer.len());
         fft.process(buffer);
     }
 
-    fn inverse_fft(&mut self, buffer: &mut Vec<Complex64>) {
+    fn inverse_fft(&mut self, buffer: &mut [Complex64]) {
         let ifft = self.fft_planner.plan_fft_inverse(buffer.len());
         ifft.process(buffer);
         let scale = 1.0 / (buffer.len() as f64);
@@ -68,7 +68,7 @@ impl Processor {
         buffer.iter().map(|x| x.re).collect()
     }
 
-    fn log(&self, buffer: &mut Vec<Complex64>) {
+    fn log(&self, buffer: &mut [Complex64]) {
         for i in 0..buffer.len() / 2 {
             // Which frequency this bin represents:
             let frequency = i as f64 * self.sample_rate as f64 / buffer.len() as f64;
@@ -82,7 +82,7 @@ impl Processor {
         }
     }
 
-    fn apply_to_conjugate_pairs<F>(&self, buffer: &mut Vec<Complex64>, mut operation: F)
+    fn apply_to_conjugate_pairs<F>(&self, buffer: &mut [Complex64], mut operation: F)
     where
         F: FnMut(usize, f64) -> f64,
     {
@@ -95,7 +95,7 @@ impl Processor {
         }
     }
 
-    fn low_pass_filter(&self, buffer: &mut Vec<Complex64>, cutoff_freq: f64) {
+    fn low_pass_filter(&self, buffer: &mut [Complex64], cutoff_freq: f64) {
         self.apply_to_conjugate_pairs(
             buffer,
             |_i, freq| {

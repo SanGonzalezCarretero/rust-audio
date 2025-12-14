@@ -229,7 +229,7 @@ impl Track {
                     let sample_rate = self.recording_sample_rate.unwrap_or(48000);
 
                     let samples_f64: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
-                    let mut wav = WavFile::new(sample_rate, channels as u16);
+                    let mut wav = WavFile::new(sample_rate, channels);
                     wav.from_f64_samples(&samples_f64);
 
                     self.wav_data = Some(wav);

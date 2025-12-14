@@ -12,14 +12,16 @@ pub struct Transport {
     playback_start_time: Option<Instant>,
 }
 
-impl Transport {
-    pub fn new() -> Self {
+impl Default for Transport {
+    fn default() -> Self {
         Transport {
             state: TransportState::Stopped,
             playback_start_time: None,
         }
     }
+}
 
+impl Transport {
     pub fn play(&mut self) {
         self.state = TransportState::Playing;
         self.playback_start_time = Some(Instant::now());
@@ -48,7 +50,7 @@ impl Session {
             name,
             tracks: Vec::new(),
             sample_rate,
-            transport: Transport::new(),
+            transport: Transport::default(),
         }
     }
 
