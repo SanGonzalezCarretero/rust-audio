@@ -1,5 +1,8 @@
 use cpal::traits::{DeviceTrait, HostTrait};
-use cpal::{Device, Host, SampleRate, StreamConfig};
+use cpal::{Device, SampleRate, StreamConfig};
+
+pub struct Input;
+pub struct Output;
 
 pub struct AudioDevice {
     pub device: Device,
@@ -9,25 +12,36 @@ pub struct AudioDevice {
 }
 
 impl AudioDevice {
-    fn get_host_and_device(is_input: bool) -> Result<(Host, Device), Box<dyn std::error::Error>> {
+    pub const INPUT: Input = Input;
+    pub const OUTPUT: Output = Output;
+}
+
+pub trait DeviceProvider {
+    fn list(&self) -> Result<Vec<String>, Box<dyn std::error::Error>>;
+    fn default(&self) -> Result<AudioDevice, Box<dyn std::error::Error>>;
+    fn by_index(&self, index: usize) -> Result<AudioDevice, Box<dyn std::error::Error>>;
+    fn by_name(&self, name: &str) -> Result<AudioDevice, Box<dyn std::error::Error>>;
+}
+
+impl DeviceProvider for Input {
+    fn list(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let host = cpal::default_host();
-        let device = if is_input {
-            host.default_input_device()
-                .ok_or("No input device available")?
-        } else {
-            host.default_output_device()
-                .ok_or("No output device available")?
-        };
-        Ok((host, device))
+        Ok(host
+            .input_devices()?
+            .filter_map(|d| d.name().ok())
+            .collect())
     }
 
-    pub fn default_input() -> Result<Self, Box<dyn std::error::Error>> {
-        let (_, device) = Self::get_host_and_device(true)?;
+    fn default(&self) -> Result<AudioDevice, Box<dyn std::error::Error>> {
+        let host = cpal::default_host();
+        let device = host
+            .default_input_device()
+            .ok_or("No input device available")?;
         let config: StreamConfig = device.default_input_config()?.into();
         let SampleRate(sample_rate) = config.sample_rate;
         let channels = config.channels;
 
-        Ok(Self {
+        Ok(AudioDevice {
             device,
             config,
             sample_rate,
@@ -35,28 +49,14 @@ impl AudioDevice {
         })
     }
 
-    pub fn default_output() -> Result<Self, Box<dyn std::error::Error>> {
-        let (_, device) = Self::get_host_and_device(false)?;
-        let config: StreamConfig = device.default_output_config()?.into();
-        let SampleRate(sample_rate) = config.sample_rate;
-        let channels = config.channels;
-
-        Ok(Self {
-            device,
-            config,
-            sample_rate,
-            channels,
-        })
-    }
-
-    pub fn input_by_index(index: usize) -> Result<Self, Box<dyn std::error::Error>> {
+    fn by_index(&self, index: usize) -> Result<AudioDevice, Box<dyn std::error::Error>> {
         let host = cpal::default_host();
         let device = host.input_devices()?.nth(index).ok_or("Device not found")?;
         let config: StreamConfig = device.default_input_config()?.into();
         let SampleRate(sample_rate) = config.sample_rate;
         let channels = config.channels;
 
-        Ok(Self {
+        Ok(AudioDevice {
             device,
             config,
             sample_rate,
@@ -64,7 +64,52 @@ impl AudioDevice {
         })
     }
 
-    pub fn output_by_index(index: usize) -> Result<Self, Box<dyn std::error::Error>> {
+    fn by_name(&self, name: &str) -> Result<AudioDevice, Box<dyn std::error::Error>> {
+        let host = cpal::default_host();
+        let device = host
+            .input_devices()?
+            .find(|d| d.name().ok().as_deref() == Some(name))
+            .ok_or("Device not found")?;
+        let config: StreamConfig = device.default_input_config()?.into();
+        let SampleRate(sample_rate) = config.sample_rate;
+        let channels = config.channels;
+
+        Ok(AudioDevice {
+            device,
+            config,
+            sample_rate,
+            channels,
+        })
+    }
+}
+
+impl DeviceProvider for Output {
+    fn list(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let host = cpal::default_host();
+        Ok(host
+            .output_devices()?
+            .filter_map(|d| d.name().ok())
+            .collect())
+    }
+
+    fn default(&self) -> Result<AudioDevice, Box<dyn std::error::Error>> {
+        let host = cpal::default_host();
+        let device = host
+            .default_output_device()
+            .ok_or("No output device available")?;
+        let config: StreamConfig = device.default_output_config()?.into();
+        let SampleRate(sample_rate) = config.sample_rate;
+        let channels = config.channels;
+
+        Ok(AudioDevice {
+            device,
+            config,
+            sample_rate,
+            channels,
+        })
+    }
+
+    fn by_index(&self, index: usize) -> Result<AudioDevice, Box<dyn std::error::Error>> {
         let host = cpal::default_host();
         let device = host
             .output_devices()?
@@ -74,7 +119,7 @@ impl AudioDevice {
         let SampleRate(sample_rate) = config.sample_rate;
         let channels = config.channels;
 
-        Ok(Self {
+        Ok(AudioDevice {
             device,
             config,
             sample_rate,
@@ -82,49 +127,17 @@ impl AudioDevice {
         })
     }
 
-    pub fn list_input_devices() -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    fn by_name(&self, name: &str) -> Result<AudioDevice, Box<dyn std::error::Error>> {
         let host = cpal::default_host();
-        Ok(host
-            .input_devices()?
-            .filter_map(|d| d.name().ok())
-            .collect())
-    }
-
-    pub fn list_output_devices() -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let host = cpal::default_host();
-        Ok(host
+        let device = host
             .output_devices()?
-            .filter_map(|d| d.name().ok())
-            .collect())
-    }
-
-    pub fn input_by_name(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let host = cpal::default_host();
-        let device = host.input_devices()?
-            .find(|d| d.name().ok().as_deref() == Some(name))
-            .ok_or("Device not found")?;
-        let config: StreamConfig = device.default_input_config()?.into();
-        let SampleRate(sample_rate) = config.sample_rate;
-        let channels = config.channels;
-
-        Ok(Self {
-            device,
-            config,
-            sample_rate,
-            channels,
-        })
-    }
-
-    pub fn output_by_name(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let host = cpal::default_host();
-        let device = host.output_devices()?
             .find(|d| d.name().ok().as_deref() == Some(name))
             .ok_or("Device not found")?;
         let config: StreamConfig = device.default_output_config()?.into();
         let SampleRate(sample_rate) = config.sample_rate;
         let channels = config.channels;
 
-        Ok(Self {
+        Ok(AudioDevice {
             device,
             config,
             sample_rate,

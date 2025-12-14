@@ -1,17 +1,20 @@
 use crate::audio_engine::AudioEngine;
-use crate::device::AudioDevice;
+use crate::device::{AudioDevice, DeviceProvider};
 use crate::effects::EffectInstance;
 use crate::wav::WavFile;
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{BufferSize, Stream};
-use ringbuf::{traits::{Consumer, Producer, Split}, HeapRb};
+use ringbuf::{
+    traits::{Consumer, Producer, Split},
+    HeapRb,
+};
 use std::sync::{Arc, Mutex};
 
 // Audio configuration constants
-const AUDIO_BUFFER_SIZE: u32 = 32;              // Frames per callback (~0.67ms @ 48kHz)
-const RING_BUFFER_MULTIPLIER: usize = 2;        // Ring size = buffer_size * multiplier
-const PREFILL_BUFFER_COUNT: usize = 0;          // Number of buffers to pre-fill with silence
-const MONITOR_BUFFER_SAMPLES: usize = 4800;     // ~100ms @ 48kHz for UI visualization
+const AUDIO_BUFFER_SIZE: u32 = 32; // Frames per callback (~0.67ms @ 48kHz)
+const RING_BUFFER_MULTIPLIER: usize = 2; // Ring size = buffer_size * multiplier
+const PREFILL_BUFFER_COUNT: usize = 0; // Number of buffers to pre-fill with silence
+const MONITOR_BUFFER_SAMPLES: usize = 4800; // ~100ms @ 48kHz for UI visualization
 
 const LATENCY_MS: f32 = 10.0;
 
@@ -27,26 +30,26 @@ pub struct Track {
     pub armed: bool,
     pub monitoring: bool,
     pub state: TrackState,
-    
+
     // FX chain
     pub fx_chain: Vec<EffectInstance>,
-    
+
     // Monitoring buffer - for live display visualization
     pub monitor_buffer: Arc<Mutex<Vec<f32>>>,
-    
+
     // Playback data (recorded or loaded)
     pub wav_data: Option<WavFile>,
     pub file_path: String,
-    
+
     // Playback state
     pub volume: f64,
     pub muted: bool,
     pub is_playing: Arc<Mutex<bool>>,
-    
+
     // Audio streams
     input_stream: Option<Stream>,
     output_stream: Option<Stream>,
-    
+
     // Recording buffer
     recording_buffer: Option<Arc<Mutex<Vec<f32>>>>,
     recording_channels: Option<u16>,
@@ -74,13 +77,13 @@ impl Track {
             recording_sample_rate: None,
         }
     }
-    
+
     pub fn arm(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.armed = true;
         self.state = TrackState::Armed;
-        
+
         self.start_monitoring()?;
-        
+
         Ok(())
     }
 
@@ -94,66 +97,68 @@ impl Track {
         if !self.armed {
             return Err("Track must be armed to monitor".into());
         }
-        
+
         let input_device = AudioEngine::get_input_device()?;
-        
-        let output_device = AudioDevice::default_output()?;
+
+        let output_device = AudioDevice::OUTPUT.default()?;
 
         let mut config = input_device.config.clone();
-        config.buffer_size = BufferSize::Fixed(AUDIO_BUFFER_SIZE); 
-        
-        let buffer_samples = AUDIO_BUFFER_SIZE as usize * config.channels as usize; 
-        
-        let ring_size = buffer_samples * RING_BUFFER_MULTIPLIER; 
+        config.buffer_size = BufferSize::Fixed(AUDIO_BUFFER_SIZE);
+
+        let buffer_samples = AUDIO_BUFFER_SIZE as usize * config.channels as usize;
+
+        let ring_size = buffer_samples * RING_BUFFER_MULTIPLIER;
         let ring = HeapRb::<f32>::new(ring_size);
         let (mut producer, mut consumer) = ring.split();
-   
+
         for _ in 0..(buffer_samples * PREFILL_BUFFER_COUNT) {
             let _ = producer.try_push(0.0);
         }
-        
+
         let monitor_buffer = Arc::clone(&self.monitor_buffer);
-        
+
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             if let Ok(mut buffer) = monitor_buffer.try_lock() {
                 buffer.truncate(0);
                 buffer.extend_from_slice(data);
             }
-            
+
             let _ = producer.push_slice(data);
         };
-        
+
         let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
             let popped = consumer.pop_slice(data);
 
             for sample in &mut data[popped..] {
-            *sample = 0.0;
+                *sample = 0.0;
             }
-            
+
             if config.channels == 2 && popped > 0 {
-            for i in (0..popped).step_by(2) {
-                if i + 1 < data.len() {
-                data[i + 1] = data[i];
+                for i in (0..popped).step_by(2) {
+                    if i + 1 < data.len() {
+                        data[i + 1] = data[i];
+                    }
                 }
             }
-            }
         };
-        
-        let input_stream = input_device
-            .device
-            .build_input_stream(&config, input_data_fn, err_fn, None)?;
-        
-        let output_stream = output_device
-            .device
-            .build_output_stream(&config, output_data_fn, err_fn, None)?;
-        
+
+        let input_stream =
+            input_device
+                .device
+                .build_input_stream(&config, input_data_fn, err_fn, None)?;
+
+        let output_stream =
+            output_device
+                .device
+                .build_output_stream(&config, output_data_fn, err_fn, None)?;
+
         input_stream.play()?;
         output_stream.play()?;
-        
+
         self.input_stream = Some(input_stream);
         self.output_stream = Some(output_stream);
         self.monitoring = true;
-        
+
         Ok(())
     }
 
@@ -167,44 +172,45 @@ impl Track {
         if !self.armed {
             return Err("Track must be armed to record".into());
         }
-         
+
         let input_device = AudioEngine::get_input_device()?;
-        
+
         let mut config = input_device.config.clone();
         let sample_rate = config.sample_rate.0;
         let recording_buffer_size = (sample_rate as f32 * LATENCY_MS / 1000.0) as u32;
-    
+
         config.buffer_size = BufferSize::Fixed(recording_buffer_size);
 
         let recorded_samples = Arc::new(Mutex::new(Vec::new()));
         let recorded_samples_clone = Arc::clone(&recorded_samples);
-        
+
         let monitor_buffer = Arc::clone(&self.monitor_buffer);
-        
+
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             if let Ok(mut buffer) = monitor_buffer.try_lock() {
                 buffer.truncate(0);
                 buffer.extend_from_slice(data);
             }
-            
+
             if let Ok(mut samples) = recorded_samples_clone.try_lock() {
                 samples.extend_from_slice(data);
             }
         };
-        
-        let input_stream = input_device
-            .device
-            .build_input_stream(&config, input_data_fn, err_fn, None)?;
-            
+
+        let input_stream =
+            input_device
+                .device
+                .build_input_stream(&config, input_data_fn, err_fn, None)?;
+
         input_stream.play()?;
-        
+
         self.input_stream = Some(input_stream);
         self.state = TrackState::Recording;
-        
+
         self.recording_buffer = Some(recorded_samples);
         self.recording_channels = Some(config.channels);
         self.recording_sample_rate = Some(sample_rate);
-        
+
         Ok(())
     }
 
@@ -215,22 +221,22 @@ impl Track {
 
         self.input_stream = None;
         self.output_stream = None;
-        
+
         if let Some(buffer) = self.recording_buffer.take() {
             if let Ok(samples) = buffer.lock() {
                 if !samples.is_empty() {
                     let channels = self.recording_channels.unwrap_or(1);
                     let sample_rate = self.recording_sample_rate.unwrap_or(48000);
-                    
+
                     let samples_f64: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
                     let mut wav = WavFile::new(sample_rate, channels as u16);
                     wav.from_f64_samples(&samples_f64);
-                    
+
                     self.wav_data = Some(wav);
                 }
             }
         }
-        
+
         self.recording_channels = None;
         self.recording_sample_rate = None;
         self.state = TrackState::Armed;
@@ -240,48 +246,52 @@ impl Track {
     pub fn waveform(&self) -> Option<Vec<f64>> {
         let wav = self.wav_data.as_ref()?;
         let samples = wav.to_f64_samples();
-        
+
         if samples.is_empty() {
             return None;
         }
-        
+
         const MAX_POINTS: usize = 500;
         let chunk_size = (samples.len() / MAX_POINTS).max(1);
-        
-        Some(samples.chunks(chunk_size).map(|chunk| {
-            chunk.iter().map(|s| s.abs()).fold(0.0, f64::max)
-        }).collect())
+
+        Some(
+            samples
+                .chunks(chunk_size)
+                .map(|chunk| chunk.iter().map(|s| s.abs()).fold(0.0, f64::max))
+                .collect(),
+        )
     }
 
     pub fn play(&self) -> Result<(), Box<dyn std::error::Error>> {
         let wav = self.wav_data.as_ref().ok_or("No audio data to play")?;
-        let samples: Vec<f64> = wav.to_f64_samples()
+        let samples: Vec<f64> = wav
+            .to_f64_samples()
             .iter()
             .map(|&s| s * self.volume)
             .collect();
-        
+
         let output_device = {
             let engine = AudioEngine::global();
             let engine = engine.lock().unwrap();
             engine.selected_output().map(|s| s.to_string())
         };
-        
+
         let sample_rate = wav.header.sample_rate;
         let channels = wav.header.num_channels;
-        
+
         // Spawn thread for non-blocking playback
         std::thread::spawn(move || {
             use cpal::{SampleRate, StreamConfig};
-            
+
             let device = if let Some(name) = output_device {
-                if let Ok(audio_device) = AudioDevice::output_by_name(&name) {
+                if let Ok(audio_device) = AudioDevice::OUTPUT.by_name(&name) {
                     audio_device.device
-                } else if let Ok(audio_device) = AudioDevice::default_output() {
+                } else if let Ok(audio_device) = AudioDevice::OUTPUT.default() {
                     audio_device.device
                 } else {
                     return;
                 }
-            } else if let Ok(audio_device) = AudioDevice::default_output() {
+            } else if let Ok(audio_device) = AudioDevice::OUTPUT.default() {
                 audio_device.device
             } else {
                 return;
@@ -292,12 +302,12 @@ impl Track {
                 sample_rate: SampleRate(sample_rate),
                 buffer_size: cpal::BufferSize::Default,
             };
-                
+
             let samples = Arc::new(samples);
             let samples_clone = Arc::clone(&samples);
             let total_samples = samples.len();
             let mut sample_idx = 0;
-            
+
             if let Ok(stream) = device.build_output_stream(
                 &config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
@@ -311,14 +321,14 @@ impl Track {
                     }
                 },
                 |err| eprintln!("Stream error: {}", err),
-                None
+                None,
             ) {
                 let _ = stream.play();
                 let duration = total_samples as f64 / sample_rate as f64;
                 std::thread::sleep(std::time::Duration::from_secs_f64(duration));
             }
         });
-        
+
         Ok(())
     }
 }
