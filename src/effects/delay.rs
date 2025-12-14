@@ -1,4 +1,4 @@
-use super::{EffectTrait, EffectBox};
+use super::{EffectBox, EffectTrait};
 use std::any::TypeId;
 use std::fmt;
 
@@ -93,4 +93,3 @@ impl EffectTrait for Delay {
         TypeId::of::<Delay>()
     }
 }
-

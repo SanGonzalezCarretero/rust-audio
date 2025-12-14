@@ -1,4 +1,4 @@
-use super::{EffectTrait, EffectBox};
+use super::{EffectBox, EffectTrait};
 use std::any::TypeId;
 use std::fmt;
 
@@ -45,9 +45,8 @@ impl EffectTrait for TapeSaturation {
 
         Ok(())
     }
-    
+
     fn type_id(&self) -> TypeId {
         TypeId::of::<TapeSaturation>()
     }
 }
-

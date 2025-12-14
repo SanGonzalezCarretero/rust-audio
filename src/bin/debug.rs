@@ -14,6 +14,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     wav_file.from_f64_samples(&filtered_samples);
     fs::write("output.wav", wav_file.export_to_bytes())?;
-    
+
     Ok(())
 }
