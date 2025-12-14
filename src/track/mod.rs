@@ -1,5 +1,5 @@
 use crate::audio_engine::AudioEngine;
-use crate::device::AudioDevice;
+use crate::device::{AudioDevice, DeviceProvider};
 use crate::effects::EffectInstance;
 use crate::wav::WavFile;
 use cpal::traits::{DeviceTrait, StreamTrait};
@@ -100,7 +100,7 @@ impl Track {
 
         let input_device = AudioEngine::get_input_device()?;
 
-        let output_device = AudioDevice::default_output()?;
+        let output_device = AudioDevice::OUTPUT.default()?;
 
         let mut config = input_device.config.clone();
         config.buffer_size = BufferSize::Fixed(AUDIO_BUFFER_SIZE);
@@ -284,14 +284,14 @@ impl Track {
             use cpal::{SampleRate, StreamConfig};
 
             let device = if let Some(name) = output_device {
-                if let Ok(audio_device) = AudioDevice::output_by_name(&name) {
+                if let Ok(audio_device) = AudioDevice::OUTPUT.by_name(&name) {
                     audio_device.device
-                } else if let Ok(audio_device) = AudioDevice::default_output() {
+                } else if let Ok(audio_device) = AudioDevice::OUTPUT.default() {
                     audio_device.device
                 } else {
                     return;
                 }
-            } else if let Ok(audio_device) = AudioDevice::default_output() {
+            } else if let Ok(audio_device) = AudioDevice::OUTPUT.default() {
                 audio_device.device
             } else {
                 return;
