@@ -2,6 +2,12 @@ use super::{EffectBox, EffectTrait};
 use std::any::TypeId;
 use std::fmt;
 
+impl Default for AdjustVolume {
+    fn default() -> Self {
+        AdjustVolume(1.0)
+    }
+}
+
 pub struct AdjustVolume(pub f32);
 
 impl AdjustVolume {
@@ -12,10 +18,6 @@ impl AdjustVolume {
     pub fn new(volume: f32) -> Self {
         AdjustVolume(volume)
     }
-
-    pub fn default() -> Self {
-        AdjustVolume(1.0)
-    }
 }
 
 impl fmt::Debug for AdjustVolume {
@@ -25,8 +27,23 @@ impl fmt::Debug for AdjustVolume {
 }
 
 impl EffectTrait for AdjustVolume {
-    fn default_instance(&self) -> EffectBox {
-        Box::new(AdjustVolume(1.0))
+    fn name() -> String
+    where
+        Self: Sized,
+    {
+        AdjustVolume::name()
+    }
+
+    fn new(params: Vec<(String, String)>) -> Self
+    where
+        Self: Sized,
+    {
+        let volume = params
+            .iter()
+            .find(|(name, _)| name == "volume")
+            .and_then(|(_, value)| value.parse::<f32>().ok())
+            .unwrap_or(1.0);
+        AdjustVolume(volume)
     }
 
     fn parameters(&self) -> Vec<(String, String)> {

@@ -2,6 +2,7 @@ use super::{EffectBox, EffectTrait};
 use std::any::TypeId;
 use std::fmt;
 
+#[derive(Default)]
 pub struct LargeReverb;
 
 impl LargeReverb {
@@ -17,8 +18,18 @@ impl fmt::Debug for LargeReverb {
 }
 
 impl EffectTrait for LargeReverb {
-    fn default_instance(&self) -> EffectBox {
-        Box::new(LargeReverb)
+    fn name() -> String
+    where
+        Self: Sized,
+    {
+        LargeReverb::name()
+    }
+
+    fn new(_params: Vec<(String, String)>) -> Self
+    where
+        Self: Sized,
+    {
+        LargeReverb
     }
 
     fn parameters(&self) -> Vec<(String, String)> {

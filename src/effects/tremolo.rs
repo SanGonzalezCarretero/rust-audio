@@ -2,6 +2,7 @@ use super::{EffectBox, EffectTrait};
 use std::any::TypeId;
 use std::fmt;
 
+#[derive(Default)]
 pub struct Tremolo;
 
 impl Tremolo {
@@ -17,8 +18,18 @@ impl fmt::Debug for Tremolo {
 }
 
 impl EffectTrait for Tremolo {
-    fn default_instance(&self) -> EffectBox {
-        Box::new(Tremolo)
+    fn name() -> String
+    where
+        Self: Sized,
+    {
+        Tremolo::name()
+    }
+
+    fn new(_params: Vec<(String, String)>) -> Self
+    where
+        Self: Sized,
+    {
+        Tremolo
     }
 
     fn parameters(&self) -> Vec<(String, String)> {

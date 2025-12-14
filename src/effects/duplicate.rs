@@ -2,6 +2,7 @@ use super::{EffectBox, EffectTrait};
 use std::any::TypeId;
 use std::fmt;
 
+#[derive(Default)]
 pub struct Duplicate;
 
 impl Duplicate {
@@ -17,8 +18,18 @@ impl fmt::Debug for Duplicate {
 }
 
 impl EffectTrait for Duplicate {
-    fn default_instance(&self) -> EffectBox {
-        Box::new(Duplicate)
+    fn name() -> String
+    where
+        Self: Sized,
+    {
+        Duplicate::name()
+    }
+
+    fn new(_params: Vec<(String, String)>) -> Self
+    where
+        Self: Sized,
+    {
+        Duplicate
     }
 
     fn parameters(&self) -> Vec<(String, String)> {

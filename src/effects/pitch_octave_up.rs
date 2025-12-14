@@ -2,6 +2,7 @@ use super::{EffectBox, EffectTrait};
 use std::any::TypeId;
 use std::fmt;
 
+#[derive(Default)]
 pub struct PitchOctaveUp;
 
 impl PitchOctaveUp {
@@ -17,8 +18,18 @@ impl fmt::Debug for PitchOctaveUp {
 }
 
 impl EffectTrait for PitchOctaveUp {
-    fn default_instance(&self) -> EffectBox {
-        Box::new(PitchOctaveUp)
+    fn name() -> String
+    where
+        Self: Sized,
+    {
+        PitchOctaveUp::name()
+    }
+
+    fn new(_params: Vec<(String, String)>) -> Self
+    where
+        Self: Sized,
+    {
+        PitchOctaveUp
     }
 
     fn parameters(&self) -> Vec<(String, String)> {

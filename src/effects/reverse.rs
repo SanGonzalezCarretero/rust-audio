@@ -2,6 +2,7 @@ use super::{EffectBox, EffectTrait};
 use std::any::TypeId;
 use std::fmt;
 
+#[derive(Default)]
 pub struct Reverse;
 
 impl Reverse {
@@ -17,8 +18,18 @@ impl fmt::Debug for Reverse {
 }
 
 impl EffectTrait for Reverse {
-    fn default_instance(&self) -> EffectBox {
-        Box::new(Reverse)
+    fn name() -> String
+    where
+        Self: Sized,
+    {
+        Reverse::name()
+    }
+
+    fn new(_params: Vec<(String, String)>) -> Self
+    where
+        Self: Sized,
+    {
+        Reverse
     }
 
     fn parameters(&self) -> Vec<(String, String)> {

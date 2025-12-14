@@ -7,6 +7,12 @@ pub struct Delay {
     pub taps: usize,
 }
 
+impl Default for Delay {
+    fn default() -> Self {
+        Delay { ms: 1, taps: 1 }
+    }
+}
+
 impl Delay {
     pub fn name() -> String {
         "Delay".to_string()
@@ -14,10 +20,6 @@ impl Delay {
 
     pub fn new(ms: usize, taps: usize) -> Self {
         Delay { ms, taps }
-    }
-
-    pub fn default() -> Self {
-        Delay { ms: 1, taps: 1 }
     }
 }
 
@@ -28,8 +30,28 @@ impl fmt::Debug for Delay {
 }
 
 impl EffectTrait for Delay {
-    fn default_instance(&self) -> EffectBox {
-        Box::new(Delay { ms: 1, taps: 1 })
+    fn name() -> String
+    where
+        Self: Sized,
+    {
+        Delay::name()
+    }
+
+    fn new(params: Vec<(String, String)>) -> Self
+    where
+        Self: Sized,
+    {
+        let ms = params
+            .iter()
+            .find(|(name, _)| name == "ms")
+            .and_then(|(_, value)| value.parse::<usize>().ok())
+            .unwrap_or(1);
+        let taps = params
+            .iter()
+            .find(|(name, _)| name == "taps")
+            .and_then(|(_, value)| value.parse::<usize>().ok())
+            .unwrap_or(1);
+        Delay { ms, taps }
     }
 
     fn parameters(&self) -> Vec<(String, String)> {

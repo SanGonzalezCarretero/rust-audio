@@ -3,6 +3,7 @@ use rand::Rng;
 use std::any::TypeId;
 use std::fmt;
 
+#[derive(Default)]
 pub struct RandomNoise;
 
 impl RandomNoise {
@@ -18,8 +19,18 @@ impl fmt::Debug for RandomNoise {
 }
 
 impl EffectTrait for RandomNoise {
-    fn default_instance(&self) -> EffectBox {
-        Box::new(RandomNoise)
+    fn name() -> String
+    where
+        Self: Sized,
+    {
+        RandomNoise::name()
+    }
+
+    fn new(_params: Vec<(String, String)>) -> Self
+    where
+        Self: Sized,
+    {
+        RandomNoise
     }
 
     fn parameters(&self) -> Vec<(String, String)> {

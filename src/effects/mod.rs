@@ -28,7 +28,10 @@ pub use pan_right::PanRight;
 pub type EffectBox = Box<dyn EffectTrait>;
 
 pub trait EffectTrait: std::fmt::Debug + Send + Sync {
-    fn default_instance(&self) -> EffectBox
+    fn name() -> String
+    where
+        Self: Sized;
+    fn new(params: Vec<(String, String)>) -> Self
     where
         Self: Sized;
     fn parameters(&self) -> Vec<(String, String)>;

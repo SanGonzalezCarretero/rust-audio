@@ -2,6 +2,7 @@ use super::{EffectBox, EffectTrait};
 use std::any::TypeId;
 use std::fmt;
 
+#[derive(Default)]
 pub struct PanRight(pub u8);
 
 impl PanRight {
@@ -12,10 +13,6 @@ impl PanRight {
     pub fn new(amount: u8) -> Self {
         PanRight(amount)
     }
-
-    pub fn default() -> Self {
-        PanRight(0)
-    }
 }
 
 impl fmt::Debug for PanRight {
@@ -25,8 +22,23 @@ impl fmt::Debug for PanRight {
 }
 
 impl EffectTrait for PanRight {
-    fn default_instance(&self) -> EffectBox {
-        Box::new(PanRight(0))
+    fn name() -> String
+    where
+        Self: Sized,
+    {
+        PanRight::name()
+    }
+
+    fn new(params: Vec<(String, String)>) -> Self
+    where
+        Self: Sized,
+    {
+        let amount = params
+            .iter()
+            .find(|(name, _)| name == "amount")
+            .and_then(|(_, value)| value.parse::<u8>().ok())
+            .unwrap_or(0);
+        PanRight(amount)
     }
 
     fn parameters(&self) -> Vec<(String, String)> {

@@ -2,6 +2,7 @@ use super::{EffectBox, EffectTrait};
 use std::any::TypeId;
 use std::fmt;
 
+#[derive(Default)]
 pub struct TapeSaturation;
 
 impl TapeSaturation {
@@ -17,8 +18,18 @@ impl fmt::Debug for TapeSaturation {
 }
 
 impl EffectTrait for TapeSaturation {
-    fn default_instance(&self) -> EffectBox {
-        Box::new(TapeSaturation)
+    fn name() -> String
+    where
+        Self: Sized,
+    {
+        TapeSaturation::name()
+    }
+
+    fn new(_params: Vec<(String, String)>) -> Self
+    where
+        Self: Sized,
+    {
+        TapeSaturation
     }
 
     fn parameters(&self) -> Vec<(String, String)> {
