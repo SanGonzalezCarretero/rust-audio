@@ -1,4 +1,4 @@
-use super::{EffectTrait, EffectBox};
+use super::{EffectBox, EffectTrait};
 use std::any::TypeId;
 use std::fmt;
 
@@ -40,9 +40,8 @@ impl EffectTrait for PitchOctaveUp {
         *samples = new_samples;
         Ok(())
     }
-    
+
     fn type_id(&self) -> TypeId {
         TypeId::of::<PitchOctaveUp>()
     }
 }
-

@@ -78,14 +78,14 @@ impl Session {
 
     pub fn start_playback(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.transport.play();
-        
+
         // Play all non-muted tracks
         for track in &self.tracks {
             if !track.muted && track.wav_data.is_some() {
                 track.play()?;
             }
         }
-        
+
         Ok(())
     }
 

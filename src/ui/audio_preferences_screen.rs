@@ -137,12 +137,18 @@ impl ScreenTrait for AudioPreferencesScreen {
             }
             KeyCode::Enter => {
                 if app.selected == 0 {
-                    if let Some(device) = engine.input_devices().get(app.audio_prefs_input_selected).cloned()
+                    if let Some(device) = engine
+                        .input_devices()
+                        .get(app.audio_prefs_input_selected)
+                        .cloned()
                     {
                         engine.set_input_device(device);
                     }
                 } else if app.selected == 1 {
-                    if let Some(device) = engine.output_devices().get(app.audio_prefs_output_selected).cloned()
+                    if let Some(device) = engine
+                        .output_devices()
+                        .get(app.audio_prefs_output_selected)
+                        .cloned()
                     {
                         engine.set_output_device(device);
                     }

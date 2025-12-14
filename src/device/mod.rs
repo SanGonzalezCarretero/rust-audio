@@ -100,7 +100,8 @@ impl AudioDevice {
 
     pub fn input_by_name(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let host = cpal::default_host();
-        let device = host.input_devices()?
+        let device = host
+            .input_devices()?
             .find(|d| d.name().ok().as_deref() == Some(name))
             .ok_or("Device not found")?;
         let config: StreamConfig = device.default_input_config()?.into();
@@ -117,7 +118,8 @@ impl AudioDevice {
 
     pub fn output_by_name(name: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let host = cpal::default_host();
-        let device = host.output_devices()?
+        let device = host
+            .output_devices()?
             .find(|d| d.name().ok().as_deref() == Some(name))
             .ok_or("Device not found")?;
         let config: StreamConfig = device.default_output_config()?.into();

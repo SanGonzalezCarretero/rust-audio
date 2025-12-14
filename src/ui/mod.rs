@@ -54,12 +54,12 @@ impl App {
         let sample_rate = AudioEngine::get_output_device()
             .map(|d| d.sample_rate)
             .unwrap_or(48000);
-        
+
         let mut session = Session::new("Untitled Project".to_string(), sample_rate);
         session.add_track("Track 1".to_string());
         session.add_track("Track 2".to_string());
         session.add_track("Track 3".to_string());
-        
+
         App {
             screen: Screen::MainMenu,
             selected: 0,

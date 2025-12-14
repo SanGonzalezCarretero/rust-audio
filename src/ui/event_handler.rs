@@ -1,10 +1,10 @@
 use crossterm::event::{self, Event, KeyCode};
 use std::time::Duration;
 
+use super::audio_preferences_screen::AudioPreferencesScreen;
 use super::daw_screen::DawScreen;
 use super::effects_screen::EffectsScreen;
 use super::main_menu_screen::MainMenuScreen;
-use super::audio_preferences_screen::AudioPreferencesScreen;
 use super::screen_trait::ScreenTrait;
 use super::{App, Screen};
 
