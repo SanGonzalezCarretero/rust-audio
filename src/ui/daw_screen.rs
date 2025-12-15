@@ -127,7 +127,7 @@ impl ScreenTrait for DawScreen {
                 .border_style(Style::default().fg(border_color))
                 .title(title);
 
-            if let Some(waveform) = track.waveform(Some(&app.debug_logger)) {
+            if let Some(waveform) = track.waveform() {
                 let max_val = waveform
                     .iter()
                     .flat_map(|(min, max)| [min.abs(), max.abs()])

@@ -59,6 +59,10 @@ pub struct Track {
     recording_buffer: Option<Arc<RwLock<Vec<f32>>>>,
     recording_channels: Option<u16>,
     recording_sample_rate: Option<u32>,
+
+    // Incremental waveform cache with interior mutability
+    waveform_cache: Arc<Mutex<Vec<(f64, f64)>>>,
+    last_processed_sample: Arc<Mutex<usize>>,
 }
 
 impl Track {
@@ -81,6 +85,8 @@ impl Track {
             recording_buffer: None,
             recording_channels: None,
             recording_sample_rate: None,
+            waveform_cache: Arc::new(Mutex::new(Vec::new())),
+            last_processed_sample: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -218,6 +224,14 @@ impl Track {
         self.recording_channels = Some(config.channels);
         self.recording_sample_rate = Some(sample_rate);
 
+        // Clear waveform cache for new recording
+        if let Ok(mut cache) = self.waveform_cache.lock() {
+            cache.clear();
+        }
+        if let Ok(mut last_pos) = self.last_processed_sample.lock() {
+            *last_pos = 0;
+        }
+
         Ok(())
     }
 
@@ -250,12 +264,7 @@ impl Track {
         Ok(())
     }
 
-    /// Returns waveform data for UI visualization as (min, max) pairs.
-    /// If actively recording, returns data from the growing recording buffer.
-    /// Otherwise, returns data from the completed wav file.
-    /// Each element is (min_peak, max_peak) for that chunk - bipolar waveform data.
-    pub fn waveform(&self, debug_logger: Option<&DebugLogger>) -> Option<Vec<(f64, f64)>> {
-        // Priority 1: If recording, show live buffer
+    pub fn waveform(&self) -> Option<Vec<(f64, f64)>> {
         if self.state == TrackState::Recording {
             if let Some(ref buffer) = self.recording_buffer {
                 if let Ok(samples) = buffer.try_read() {
@@ -263,31 +272,30 @@ impl Track {
                         return None;
                     }
 
-                    let sample_count = samples.len();
-                    let sample_rate = self.recording_sample_rate.unwrap_or(48000);
-                    let duration_secs = sample_count as f64 / sample_rate as f64;
+                    let total_samples = samples.len();
 
-                    if let Some(logger) = debug_logger {
-                        let samples_f64: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
-                        let downsampled = downsample_bipolar(&samples_f64);
+                    if let (Ok(mut cache), Ok(mut last_pos)) = (
+                        self.waveform_cache.lock(),
+                        self.last_processed_sample.lock(),
+                    ) {
+                        let new_sample_count = total_samples.saturating_sub(*last_pos);
 
-                        logger.log(format!(
-                            "[LIVE GROWING] {} samples → {} points | {:.2}s recorded",
-                            sample_count,
-                            downsampled.len(),
-                            duration_secs
-                        ));
+                        if new_sample_count > 0 {
+                            let new_samples = &samples[*last_pos..];
+                            let samples_f64: Vec<f64> =
+                                new_samples.iter().map(|&s| s as f64).collect();
 
-                        return Some(downsampled);
+                            let new_peaks = downsample_bipolar(&samples_f64);
+                            cache.extend(new_peaks);
+                            *last_pos = total_samples;
+                        }
+
+                        return Some(cache.clone());
                     }
-
-                    let samples_f64: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
-                    return Some(downsample_bipolar(&samples_f64));
                 }
             }
         }
 
-        // Priority 2: Show completed recording/loaded file
         let wav = self.wav_data.as_ref()?;
         let samples = wav.to_f64_samples();
 
@@ -298,19 +306,6 @@ impl Track {
         let sample_count = samples.len();
         let sample_rate = wav.header.sample_rate;
         let duration_secs = sample_count as f64 / sample_rate as f64;
-
-        if let Some(logger) = debug_logger {
-            let downsampled = downsample_bipolar(&samples);
-
-            logger.log(format!(
-                "[FILE STATIC] {} samples → {} points | {:.2}s total",
-                sample_count,
-                downsampled.len(),
-                duration_secs
-            ));
-
-            return Some(downsampled);
-        }
 
         Some(downsample_bipolar(&samples))
     }
