@@ -37,6 +37,9 @@ impl AppEventHandler {
                 app.status = event_config::RECORDED_STATUS.to_string();
             }
         }
+
+        // Check if playback has finished and reset transport state
+        app.session.check_playback_status();
     }
 
     fn poll_for_event() -> Result<bool, Box<dyn std::error::Error>> {

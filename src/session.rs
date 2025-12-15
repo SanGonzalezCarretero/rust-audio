@@ -82,7 +82,7 @@ impl Session {
         self.transport.play();
 
         // Play all non-muted tracks
-        for track in &self.tracks {
+        for track in &mut self.tracks {
             if !track.muted && track.wav_data.is_some() {
                 track.play()?;
             }
@@ -92,7 +92,30 @@ impl Session {
     }
 
     pub fn stop_playback(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        for track in &mut self.tracks {
+            track.stop_playback();
+        }
+
         self.transport.stop();
         Ok(())
+    }
+
+    pub fn check_playback_status(&mut self) {
+        // Check if all tracks have finished playing
+        if self.transport.is_playing() {
+            let all_finished = self.tracks.iter().all(|track| {
+                // If track has no audio data or is muted, consider it "finished"
+                if track.wav_data.is_none() || track.muted {
+                    true
+                } else {
+                    // Check if playback is finished
+                    track.is_playback_finished()
+                }
+            });
+
+            if all_finished {
+                self.transport.stop();
+            }
+        }
     }
 }

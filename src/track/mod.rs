@@ -8,7 +8,10 @@ use ringbuf::{
     traits::{Consumer, Producer, Split},
     HeapRb,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 // Audio configuration constants
 const AUDIO_BUFFER_SIZE: u32 = 32; // Frames per callback (~0.67ms @ 48kHz)
@@ -44,11 +47,12 @@ pub struct Track {
     // Playback state
     pub volume: f64,
     pub muted: bool,
-    pub is_playing: Arc<Mutex<bool>>,
+    pub is_playing: Arc<AtomicBool>,
 
     // Audio streams
     input_stream: Option<Stream>,
     output_stream: Option<Stream>,
+    playback_thread: Option<std::thread::JoinHandle<()>>,
 
     // Recording buffer
     recording_buffer: Option<Arc<Mutex<Vec<f32>>>>,
@@ -69,9 +73,10 @@ impl Track {
             file_path: String::new(),
             volume: 1.0,
             muted: false,
-            is_playing: Arc::new(Mutex::new(false)),
+            is_playing: Arc::new(AtomicBool::new(false)),
             input_stream: None,
             output_stream: None,
+            playback_thread: None,
             recording_buffer: None,
             recording_channels: None,
             recording_sample_rate: None,
@@ -262,7 +267,10 @@ impl Track {
         )
     }
 
-    pub fn play(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn play(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Stop any existing playback first
+        self.stop_playback();
+
         let wav = self.wav_data.as_ref().ok_or("No audio data to play")?;
         let samples: Vec<f64> = wav
             .to_f64_samples()
@@ -279,8 +287,13 @@ impl Track {
         let sample_rate = wav.header.sample_rate;
         let channels = wav.header.num_channels;
 
+        // Reset flag
+        self.is_playing.store(true, Ordering::Relaxed);
+
+        let is_playing_flag = Arc::clone(&self.is_playing);
+
         // Spawn thread for non-blocking playback
-        std::thread::spawn(move || {
+        let handle = std::thread::spawn(move || {
             use cpal::{SampleRate, StreamConfig};
 
             let device = if let Some(name) = output_device {
@@ -289,11 +302,13 @@ impl Track {
                 } else if let Ok(audio_device) = AudioDevice::OUTPUT.default() {
                     audio_device.device
                 } else {
+                    is_playing_flag.store(false, Ordering::Relaxed);
                     return;
                 }
             } else if let Ok(audio_device) = AudioDevice::OUTPUT.default() {
                 audio_device.device
             } else {
+                is_playing_flag.store(false, Ordering::Relaxed);
                 return;
             };
 
@@ -307,10 +322,20 @@ impl Track {
             let samples_clone = Arc::clone(&samples);
             let total_samples = samples.len();
             let mut sample_idx = 0;
+            let is_playing_for_closure = Arc::clone(&is_playing_flag);
+            let is_playing_for_loop = Arc::clone(&is_playing_flag);
 
             if let Ok(stream) = device.build_output_stream(
                 &config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    if !is_playing_for_closure.load(Ordering::Relaxed) {
+                        // Output silence when stopped/cancelled
+                        for frame in data.iter_mut() {
+                            *frame = 0.0;
+                        }
+                        return;
+                    }
+
                     for frame in data.iter_mut() {
                         *frame = if sample_idx < samples_clone.len() {
                             samples_clone[sample_idx] as f32
@@ -323,13 +348,48 @@ impl Track {
                 |err| eprintln!("Stream error: {}", err),
                 None,
             ) {
-                let _ = stream.play();
+                if let Err(e) = stream.play() {
+                    eprintln!("Failed to play stream: {}", e);
+                    is_playing_flag.store(false, Ordering::Relaxed);
+                    return;
+                }
+
+                // Wait for playback to complete or be cancelled
                 let duration = total_samples as f64 / sample_rate as f64;
-                std::thread::sleep(std::time::Duration::from_secs_f64(duration));
+                let start = std::time::Instant::now();
+                while start.elapsed().as_secs_f64() < duration {
+                    if !is_playing_for_loop.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
             }
+
+            is_playing_flag.store(false, Ordering::Relaxed);
         });
 
+        self.playback_thread = Some(handle);
         Ok(())
+    }
+
+    pub fn stop_playback(&mut self) {
+        // Set flag to stop playback
+        self.is_playing.store(false, Ordering::Relaxed);
+
+        // Wait for thread to finish (with timeout to avoid blocking forever)
+        if let Some(handle) = self.playback_thread.take() {
+            // Don't wait indefinitely - just drop the handle
+            // The is_playing flag will stop audio production
+            drop(handle);
+        }
+    }
+
+    pub fn is_playback_finished(&self) -> bool {
+        !self.is_playing.load(Ordering::Relaxed)
+    }
+
+    pub fn is_playing_track(&self) -> bool {
+        self.is_playing.load(Ordering::Relaxed)
     }
 }
 
