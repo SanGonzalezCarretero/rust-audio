@@ -2,7 +2,10 @@ use crossterm::event::KeyCode;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Borders, Gauge, List, ListItem, Sparkline},
+    widgets::{
+        canvas::{Canvas, Line},
+        Block, Borders, Gauge, List, ListItem,
+    },
     Frame,
 };
 
@@ -124,17 +127,42 @@ impl ScreenTrait for DawScreen {
                 .border_style(Style::default().fg(border_color))
                 .title(title);
 
-            if let Some(waveform) = track.waveform() {
-                let max_val = waveform.iter().cloned().fold(0.0f64, f64::max).max(0.001);
-                let waveform_u64: Vec<u64> = waveform
+            if let Some(waveform) = track.waveform(Some(&app.debug_logger)) {
+                let max_val = waveform
                     .iter()
-                    .map(|&v| ((v / max_val) * 100.0) as u64)
-                    .collect();
-                let sparkline = Sparkline::default()
+                    .flat_map(|(min, max)| [min.abs(), max.abs()])
+                    .fold(0.0f64, f64::max)
+                    .max(0.001);
+
+                let canvas = Canvas::default()
                     .block(block)
-                    .data(&waveform_u64)
-                    .style(Style::default().fg(layout_config::DEFAULT_BORDER));
-                f.render_widget(sparkline, *chunk);
+                    .x_bounds([0.0, waveform.len() as f64])
+                    .y_bounds([-1.0, 1.0])
+                    .paint(|ctx| {
+                        ctx.draw(&Line {
+                            x1: 0.0,
+                            y1: 0.0,
+                            x2: waveform.len() as f64,
+                            y2: 0.0,
+                            color: Color::DarkGray,
+                        });
+
+                        for (i, &(min, max)) in waveform.iter().enumerate() {
+                            let x = i as f64;
+                            let y_min = (min / max_val).clamp(-1.0, 1.0);
+                            let y_max = (max / max_val).clamp(-1.0, 1.0);
+
+                            // Draw vertical line from min to max
+                            ctx.draw(&Line {
+                                x1: x,
+                                y1: y_min,
+                                x2: x,
+                                y2: y_max,
+                                color: layout_config::DEFAULT_BORDER,
+                            });
+                        }
+                    });
+                f.render_widget(canvas, *chunk);
             } else {
                 let list =
                     List::new(vec![ListItem::new(layout_config::EMPTY_LANE_MESSAGE)]).block(block);

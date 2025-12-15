@@ -2,7 +2,6 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use rand::random;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{io, thread::JoinHandle};
 
@@ -101,8 +100,6 @@ pub fn run(debug_mode: bool) -> Result<(), Box<dyn std::error::Error>> {
         if event_handler::AppEventHandler::process_events(&mut app)? {
             break;
         }
-
-        app.debug_log(format!("{:?}", random::<f64>()));
     }
 
     disable_raw_mode()?;

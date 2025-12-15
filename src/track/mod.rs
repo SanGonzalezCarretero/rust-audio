@@ -1,6 +1,7 @@
 use crate::audio_engine::AudioEngine;
 use crate::device::{AudioDevice, DeviceProvider};
 use crate::effects::EffectInstance;
+use crate::ui::DebugLogger;
 use crate::wav::WavFile;
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{BufferSize, Stream};
@@ -10,7 +11,7 @@ use ringbuf::{
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, RwLock,
 };
 
 // Audio configuration constants
@@ -54,8 +55,8 @@ pub struct Track {
     output_stream: Option<Stream>,
     playback_thread: Option<std::thread::JoinHandle<()>>,
 
-    // Recording buffer
-    recording_buffer: Option<Arc<Mutex<Vec<f32>>>>,
+    // Recording buffer (RwLock allows concurrent reads while recording)
+    recording_buffer: Option<Arc<RwLock<Vec<f32>>>>,
     recording_channels: Option<u16>,
     recording_sample_rate: Option<u32>,
 }
@@ -186,7 +187,7 @@ impl Track {
 
         config.buffer_size = BufferSize::Fixed(recording_buffer_size);
 
-        let recorded_samples = Arc::new(Mutex::new(Vec::new()));
+        let recorded_samples = Arc::new(RwLock::new(Vec::new()));
         let recorded_samples_clone = Arc::clone(&recorded_samples);
 
         let monitor_buffer = Arc::clone(&self.monitor_buffer);
@@ -197,7 +198,8 @@ impl Track {
                 buffer.extend_from_slice(data);
             }
 
-            if let Ok(mut samples) = recorded_samples_clone.try_lock() {
+            // Write lock for adding new samples
+            if let Ok(mut samples) = recorded_samples_clone.write() {
                 samples.extend_from_slice(data);
             }
         };
@@ -228,7 +230,7 @@ impl Track {
         self.output_stream = None;
 
         if let Some(buffer) = self.recording_buffer.take() {
-            if let Ok(samples) = buffer.lock() {
+            if let Ok(samples) = buffer.read() {
                 if !samples.is_empty() {
                     let channels = self.recording_channels.unwrap_or(1);
                     let sample_rate = self.recording_sample_rate.unwrap_or(48000);
@@ -248,7 +250,44 @@ impl Track {
         Ok(())
     }
 
-    pub fn waveform(&self) -> Option<Vec<f64>> {
+    /// Returns waveform data for UI visualization as (min, max) pairs.
+    /// If actively recording, returns data from the growing recording buffer.
+    /// Otherwise, returns data from the completed wav file.
+    /// Each element is (min_peak, max_peak) for that chunk - bipolar waveform data.
+    pub fn waveform(&self, debug_logger: Option<&DebugLogger>) -> Option<Vec<(f64, f64)>> {
+        // Priority 1: If recording, show live buffer
+        if self.state == TrackState::Recording {
+            if let Some(ref buffer) = self.recording_buffer {
+                if let Ok(samples) = buffer.try_read() {
+                    if samples.is_empty() {
+                        return None;
+                    }
+
+                    let sample_count = samples.len();
+                    let sample_rate = self.recording_sample_rate.unwrap_or(48000);
+                    let duration_secs = sample_count as f64 / sample_rate as f64;
+
+                    if let Some(logger) = debug_logger {
+                        let samples_f64: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
+                        let downsampled = downsample_bipolar(&samples_f64);
+
+                        logger.log(format!(
+                            "[LIVE GROWING] {} samples → {} points | {:.2}s recorded",
+                            sample_count,
+                            downsampled.len(),
+                            duration_secs
+                        ));
+
+                        return Some(downsampled);
+                    }
+
+                    let samples_f64: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
+                    return Some(downsample_bipolar(&samples_f64));
+                }
+            }
+        }
+
+        // Priority 2: Show completed recording/loaded file
         let wav = self.wav_data.as_ref()?;
         let samples = wav.to_f64_samples();
 
@@ -256,15 +295,24 @@ impl Track {
             return None;
         }
 
-        const MAX_POINTS: usize = 500;
-        let chunk_size = (samples.len() / MAX_POINTS).max(1);
+        let sample_count = samples.len();
+        let sample_rate = wav.header.sample_rate;
+        let duration_secs = sample_count as f64 / sample_rate as f64;
 
-        Some(
-            samples
-                .chunks(chunk_size)
-                .map(|chunk| chunk.iter().map(|s| s.abs()).fold(0.0, f64::max))
-                .collect(),
-        )
+        if let Some(logger) = debug_logger {
+            let downsampled = downsample_bipolar(&samples);
+
+            logger.log(format!(
+                "[FILE STATIC] {} samples → {} points | {:.2}s total",
+                sample_count,
+                downsampled.len(),
+                duration_secs
+            ));
+
+            return Some(downsampled);
+        }
+
+        Some(downsample_bipolar(&samples))
     }
 
     pub fn play(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -391,6 +439,23 @@ impl Track {
     pub fn is_playing_track(&self) -> bool {
         self.is_playing.load(Ordering::Relaxed)
     }
+}
+
+/// Downsample audio data for bipolar UI rendering (Reaper-style).
+/// Reduces the number of points to ~500 max by finding min and max in each chunk.
+/// Returns (min_peak, max_peak) tuples for drawing waveform from center axis.
+fn downsample_bipolar(samples: &[f64]) -> Vec<(f64, f64)> {
+    const MAX_POINTS: usize = 500;
+    let chunk_size = (samples.len() / MAX_POINTS).max(1);
+
+    samples
+        .chunks(chunk_size)
+        .map(|chunk| {
+            let min = chunk.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = chunk.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            (min, max)
+        })
+        .collect()
 }
 
 fn err_fn(err: cpal::StreamError) {
