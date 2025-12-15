@@ -128,12 +128,6 @@ impl ScreenTrait for DawScreen {
                 .title(title);
 
             if let Some(waveform) = track.waveform() {
-                let max_val = waveform
-                    .iter()
-                    .flat_map(|(min, max)| [min.abs(), max.abs()])
-                    .fold(0.0f64, f64::max)
-                    .max(0.001);
-
                 let canvas = Canvas::default()
                     .block(block)
                     .x_bounds([0.0, waveform.len() as f64])
@@ -149,8 +143,10 @@ impl ScreenTrait for DawScreen {
 
                         for (i, &(min, max)) in waveform.iter().enumerate() {
                             let x = i as f64;
-                            let y_min = (min / max_val).clamp(-1.0, 1.0);
-                            let y_max = (max / max_val).clamp(-1.0, 1.0);
+                            // Amplify the waveform for better visibility
+                            const SENSITIVITY: f64 = 8.0;
+                            let y_min = (min * SENSITIVITY).clamp(-1.0, 1.0);
+                            let y_max = (max * SENSITIVITY).clamp(-1.0, 1.0);
 
                             // Draw vertical line from min to max
                             ctx.draw(&Line {
