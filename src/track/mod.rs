@@ -431,8 +431,6 @@ impl Track {
     }
 }
 
-/// Downsample audio data for bipolar UI rendering (Reaper-style).
-/// Reduces the number of points to ~500 max by finding min and max in each chunk.
 /// Returns (min_peak, max_peak) tuples for drawing waveform from center axis.
 fn downsample_bipolar(samples: &[f64]) -> Vec<(f64, f64)> {
     const MAX_POINTS: usize = 500;
