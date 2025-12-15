@@ -1,7 +1,6 @@
 use crate::audio_engine::AudioEngine;
 use crate::device::{AudioDevice, DeviceProvider};
 use crate::effects::EffectInstance;
-use crate::ui::DebugLogger;
 use crate::wav::WavFile;
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{BufferSize, Stream};
@@ -302,10 +301,6 @@ impl Track {
         if samples.is_empty() {
             return None;
         }
-
-        let sample_count = samples.len();
-        let sample_rate = wav.header.sample_rate;
-        let duration_secs = sample_count as f64 / sample_rate as f64;
 
         Some(downsample_bipolar(&samples))
     }
