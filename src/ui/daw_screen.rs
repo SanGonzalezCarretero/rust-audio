@@ -173,11 +173,23 @@ impl ScreenTrait for DawScreen {
                 Err(e) => app.status = format!("Playback error: {}", e),
             },
 
-            // Individual track playback (solo)
-            KeyCode::Char('p') => match app.session.tracks[app.selected].play() {
-                Ok(_) => app.status = format!("Playing Track {}", app.selected + 1),
-                Err(e) => app.status = format!("Error playing: {}", e),
-            },
+            // Individual track playback (solo) - toggle playback
+            KeyCode::Char('p') => {
+                if app.session.transport.is_playing() {
+                    app.status = "Stop global playback first (press space)".to_string();
+                } else {
+                    let track = &mut app.session.tracks[app.selected];
+                    if track.is_playing_track() {
+                        track.stop_playback();
+                        app.status = format!("Track {} stopped", app.selected + 1);
+                    } else {
+                        match track.play() {
+                            Ok(_) => app.status = format!("Playing Track {}", app.selected + 1),
+                            Err(e) => app.status = format!("Error playing: {}", e),
+                        }
+                    }
+                }
+            }
 
             KeyCode::Char('a') => {
                 let track = &mut app.session.tracks[app.selected];
