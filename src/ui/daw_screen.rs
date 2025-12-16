@@ -21,7 +21,8 @@ mod layout_config {
     pub const DEFAULT_BORDER: Color = Color::White;
     pub const ARMED_BORDER: Color = Color::Red;
     pub const RECORDING_BORDER: Color = Color::Magenta;
-    pub const EMPTY_LANE_MESSAGE: &str = "Space: Play All | 'p': Solo | 'a': Arm | 'r': Record";
+    pub const EMPTY_LANE_MESSAGE: &str =
+        "Space: Play All | 'p': Solo | 'a': Arm | 'r': Record | 'f': Record Armed";
     pub const LANE_STATUS_EMPTY: &str = "Empty";
     pub const LANE_STATUS_ARMED: &str = "ARMED";
     pub const LANE_STATUS_MUTED: &str = "MUTED";
@@ -309,6 +310,29 @@ impl ScreenTrait for DawScreen {
 
             KeyCode::Char('x') => {
                 app.status = "Export mixed audio".to_string();
+            }
+
+            KeyCode::Char('f') => {
+                // Record all armed tracks simultaneously
+                let mut recording_count = 0;
+                let mut errors = Vec::new();
+
+                for (i, track) in app.session.tracks.iter_mut().enumerate() {
+                    if track.armed {
+                        match track.start_recording() {
+                            Ok(_) => recording_count += 1,
+                            Err(e) => errors.push(format!("Track {}: {}", i + 1, e)),
+                        }
+                    }
+                }
+
+                if recording_count > 0 {
+                    app.status = format!("Recording {} armed track(s)", recording_count);
+                } else if !errors.is_empty() {
+                    app.status = format!("Errors: {}", errors.join(", "));
+                } else {
+                    app.status = "No armed tracks to record".to_string();
+                }
             }
 
             _ => {}
