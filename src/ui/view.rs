@@ -10,7 +10,7 @@ use super::daw_screen::DawScreen;
 use super::effects_screen::EffectsScreen;
 use super::main_menu_screen::MainMenuScreen;
 use super::screen_trait::ScreenTrait;
-use super::{App, Screen};
+use super::{App, Screen, DebugLogger};
 
 mod layout_config {
     use ratatui::style::Color;
@@ -100,12 +100,18 @@ impl AppView {
         f.render_widget(status, area);
     }
 
-    fn render_debug_panel(f: &mut Frame, app: &App, area: Rect) {
-        if !app.debug_logger.is_enabled() {
-            return;
+    fn render_debug_panel(f: &mut Frame, _app: &App, area: Rect) {
+        let logger = DebugLogger::global();
+        let logger = match logger.lock() {
+            Ok(l) => l,
+            Err(_) => return,
         };
 
-        let logs = app.debug_logger.get_logs();
+        if !logger.is_enabled() {
+            return;
+        }
+
+        let logs = logger.get_logs();
 
         let debug_text = if logs.is_empty() {
             "No debug messages".to_string()
