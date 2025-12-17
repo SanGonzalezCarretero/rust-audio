@@ -2,7 +2,10 @@ use crossterm::event::KeyCode;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Borders, Gauge, List, ListItem, Sparkline},
+    widgets::{
+        canvas::{Canvas, Line},
+        Block, Borders, Gauge, List, ListItem, Sparkline,
+    },
     Frame,
 };
 
@@ -14,17 +17,13 @@ mod layout_config {
     use ratatui::style::Color;
 
     pub const LANE_PERCENTAGES: [u16; 3] = [33, 33, 34];
-    pub const SELECTED_BORDER: Color = Color::Cyan;        // Bright cyan for selection
-    pub const DEFAULT_BORDER: Color = Color::DarkGray;     // Dimmer for unselected
+    pub const SELECTED_BORDER: Color = Color::Cyan; // Bright cyan for selection
+    pub const DEFAULT_BORDER: Color = Color::DarkGray; // Dimmer for unselected
     pub const ARMED_BORDER: Color = Color::Red;
     pub const RECORDING_BORDER: Color = Color::Magenta;
-<<<<<<< Updated upstream
-    pub const EMPTY_LANE_MESSAGE: &str = "Space: Play All | 'p': Solo | 'a': Arm | 'r': Record";
-=======
-    pub const PLAYING_BORDER: Color = Color::Green;        // Green for active playback
+    pub const PLAYING_BORDER: Color = Color::Green; // Green for active playback
     pub const EMPTY_LANE_MESSAGE: &str =
         "Space: Play All | 'p': Solo | 'a': Arm | 'r': Record | 'f': Record Armed";
->>>>>>> Stashed changes
     pub const LANE_STATUS_EMPTY: &str = "Empty";
     pub const LANE_STATUS_ARMED: &str = "ARMED";
     pub const LANE_STATUS_MUTED: &str = "MUTED";
@@ -112,7 +111,8 @@ impl ScreenTrait for DawScreen {
                 }
             } else if is_selected {
                 layout_config::SELECTED_BORDER // Bright cyan for selected
-            } else if app.session.transport.is_playing() && !track.muted && track.wav_data.is_some() {
+            } else if app.session.transport.is_playing() && !track.muted && track.wav_data.is_some()
+            {
                 layout_config::PLAYING_BORDER // Green when playing
             } else if track.armed {
                 layout_config::ARMED_BORDER // Red when armed
@@ -144,21 +144,19 @@ impl ScreenTrait for DawScreen {
                 .title(title);
 
             if let Some(waveform) = track.waveform() {
-                let max_val = waveform.iter().cloned().fold(0.0f64, f64::max).max(0.001);
-                let waveform_u64: Vec<u64> = waveform
-                    .iter()
-                    .map(|&v| ((v / max_val) * 100.0) as u64)
-                    .collect();
-                let sparkline = Sparkline::default()
+                // Use brighter color for selected track
+                let waveform_color = if is_selected {
+                    Color::White
+                } else {
+                    Color::Gray
+                };
+
+                let canvas = Canvas::default()
                     .block(block)
-<<<<<<< Updated upstream
-                    .data(&waveform_u64)
-                    .style(Style::default().fg(layout_config::DEFAULT_BORDER));
-                f.render_widget(sparkline, *chunk);
-=======
                     .x_bounds([0.0, waveform.len() as f64])
                     .y_bounds([-1.0, 1.0])
                     .paint(|ctx| {
+                        // Draw center line
                         ctx.draw(&Line {
                             x1: 0.0,
                             y1: 0.0,
@@ -175,13 +173,6 @@ impl ScreenTrait for DawScreen {
                             let y_max = (max * SENSITIVITY).clamp(-1.0, 1.0);
 
                             // Draw vertical line from min to max
-                            // Use brighter color for selected track
-                            let waveform_color = if is_selected {
-                                Color::White
-                            } else {
-                                Color::Gray
-                            };
-                            
                             ctx.draw(&Line {
                                 x1: x,
                                 y1: y_min,
@@ -192,7 +183,6 @@ impl ScreenTrait for DawScreen {
                         }
                     });
                 f.render_widget(canvas, *chunk);
->>>>>>> Stashed changes
             } else {
                 let list =
                     List::new(vec![ListItem::new(layout_config::EMPTY_LANE_MESSAGE)]).block(block);
