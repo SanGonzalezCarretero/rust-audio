@@ -1,6 +1,7 @@
 use crate::audio_engine::AudioEngine;
 use crate::device::{AudioDevice, DeviceProvider};
 use crate::effects::EffectInstance;
+use crate::ui::DebugLogger;
 use crate::wav::WavFile;
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{BufferSize, Stream};
@@ -17,7 +18,6 @@ use std::sync::{
 const AUDIO_BUFFER_SIZE: u32 = 32; // Frames per callback (~0.67ms @ 48kHz)
 const RING_BUFFER_MULTIPLIER: usize = 2; // Ring size = buffer_size * multiplier
 const PREFILL_BUFFER_COUNT: usize = 0; // Number of buffers to pre-fill with silence
-const MONITOR_BUFFER_SAMPLES: usize = 4800; // ~100ms @ 48kHz for UI visualization
 
 const LATENCY_MS: f32 = 10.0;
 
@@ -37,9 +37,6 @@ pub struct Track {
     // FX chain
     pub fx_chain: Vec<EffectInstance>,
 
-    // Monitoring buffer - for live display visualization
-    pub monitor_buffer: Arc<Mutex<Vec<f32>>>,
-
     // Playback data (recorded or loaded)
     pub wav_data: Option<WavFile>,
     pub file_path: String,
@@ -58,6 +55,10 @@ pub struct Track {
     recording_buffer: Option<Arc<Mutex<Vec<f32>>>>,
     recording_channels: Option<u16>,
     recording_sample_rate: Option<u32>,
+
+    // Waveform caching
+    waveform_cache: Arc<Mutex<Vec<(f64, f64)>>>,
+    last_processed_sample: Arc<Mutex<usize>>,
 }
 
 impl Track {
@@ -68,7 +69,6 @@ impl Track {
             monitoring: false,
             state: TrackState::Idle,
             fx_chain: vec![],
-            monitor_buffer: Arc::new(Mutex::new(vec![0.0; MONITOR_BUFFER_SAMPLES])),
             wav_data: None,
             file_path: String::new(),
             volume: 1.0,
@@ -80,6 +80,8 @@ impl Track {
             recording_buffer: None,
             recording_channels: None,
             recording_sample_rate: None,
+            waveform_cache: Arc::new(Mutex::new(Vec::new())),
+            last_processed_sample: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -120,14 +122,7 @@ impl Track {
             let _ = producer.try_push(0.0);
         }
 
-        let monitor_buffer = Arc::clone(&self.monitor_buffer);
-
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            if let Ok(mut buffer) = monitor_buffer.try_lock() {
-                buffer.truncate(0);
-                buffer.extend_from_slice(data);
-            }
-
             let _ = producer.push_slice(data);
         };
 
@@ -195,17 +190,10 @@ impl Track {
         let recorded_samples = Arc::new(Mutex::new(Vec::new()));
         let recorded_samples_clone = Arc::clone(&recorded_samples);
 
-        let monitor_buffer = Arc::clone(&self.monitor_buffer);
-
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            if let Ok(mut buffer) = monitor_buffer.try_lock() {
-                buffer.truncate(0);
-                buffer.extend_from_slice(data);
-            }
-
             let _ = producer.push_slice(data);
 
-            if let Ok(mut samples) = recorded_samples_clone.write() {
+            if let Ok(mut samples) = recorded_samples_clone.lock() {
                 samples.extend_from_slice(data);
             }
         };
@@ -276,10 +264,50 @@ impl Track {
         self.recording_channels = None;
         self.recording_sample_rate = None;
         self.state = TrackState::Armed;
+
+        // Clear waveform cache for next recording
+        if let Ok(mut cache) = self.waveform_cache.lock() {
+            cache.clear();
+        }
+        if let Ok(mut last_pos) = self.last_processed_sample.lock() {
+            *last_pos = 0;
+        }
+
         Ok(())
     }
 
-    pub fn waveform(&self) -> Option<Vec<f64>> {
+    pub fn waveform(&self) -> Option<Vec<(f64, f64)>> {
+        if self.state == TrackState::Recording {
+            if let Some(ref buffer) = self.recording_buffer {
+                if let Ok(samples) = buffer.try_lock() {
+                    if samples.is_empty() {
+                        return None;
+                    }
+
+                    let total_samples = samples.len();
+
+                    if let (Ok(mut cache), Ok(mut last_pos)) = (
+                        self.waveform_cache.lock(),
+                        self.last_processed_sample.lock(),
+                    ) {
+                        let new_sample_count = total_samples.saturating_sub(*last_pos);
+
+                        if new_sample_count > 0 {
+                            let new_samples = &samples[*last_pos..];
+                            let samples_f64: Vec<f64> =
+                                new_samples.iter().map(|&s| s as f64).collect();
+
+                            let new_peaks = downsample_bipolar(&samples_f64);
+                            cache.extend(new_peaks);
+                            *last_pos = total_samples;
+                        }
+
+                        return Some(cache.clone());
+                    }
+                }
+            }
+        }
+
         let wav = self.wav_data.as_ref()?;
         let samples = wav.to_f64_samples();
 
@@ -287,15 +315,7 @@ impl Track {
             return None;
         }
 
-        const MAX_POINTS: usize = 500;
-        let chunk_size = (samples.len() / MAX_POINTS).max(1);
-
-        Some(
-            samples
-                .chunks(chunk_size)
-                .map(|chunk| chunk.iter().map(|s| s.abs()).fold(0.0, f64::max))
-                .collect(),
-        )
+        Some(downsample_bipolar(&samples))
     }
 
     pub fn play(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -421,6 +441,21 @@ impl Track {
     pub fn is_playing_track(&self) -> bool {
         self.is_playing.load(Ordering::Relaxed)
     }
+}
+
+/// Returns (min_peak, max_peak) tuples for drawing waveform from center axis.
+fn downsample_bipolar(samples: &[f64]) -> Vec<(f64, f64)> {
+    const MAX_POINTS: usize = 500;
+    let chunk_size = (samples.len() / MAX_POINTS).max(1);
+
+    samples
+        .chunks(chunk_size)
+        .map(|chunk| {
+            let min = chunk.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = chunk.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            (min, max)
+        })
+        .collect()
 }
 
 fn err_fn(err: cpal::StreamError) {
