@@ -102,8 +102,6 @@ pub fn run(debug_mode: bool) -> Result<(), Box<dyn std::error::Error>> {
         if event_handler::AppEventHandler::process_events(&mut app)? {
             break;
         }
-
-        app.debug_log(format!("{:?}", random::<f64>()));
     }
 
     disable_raw_mode()?;
