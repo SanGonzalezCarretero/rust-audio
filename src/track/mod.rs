@@ -55,10 +55,6 @@ pub struct Track {
     recording_buffer: Option<Arc<Mutex<Vec<f32>>>>,
     recording_channels: Option<u16>,
     recording_sample_rate: Option<u32>,
-
-    // Waveform caching
-    waveform_cache: Arc<Mutex<Vec<(f64, f64)>>>,
-    last_processed_sample: Arc<Mutex<usize>>,
 }
 
 impl Track {
@@ -80,8 +76,6 @@ impl Track {
             recording_buffer: None,
             recording_channels: None,
             recording_sample_rate: None,
-            waveform_cache: Arc::new(Mutex::new(Vec::new())),
-            last_processed_sample: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -265,49 +259,10 @@ impl Track {
         self.recording_sample_rate = None;
         self.state = TrackState::Armed;
 
-        // Clear waveform cache for next recording
-        if let Ok(mut cache) = self.waveform_cache.lock() {
-            cache.clear();
-        }
-        if let Ok(mut last_pos) = self.last_processed_sample.lock() {
-            *last_pos = 0;
-        }
-
         Ok(())
     }
 
-    pub fn waveform(&self) -> Option<Vec<(f64, f64)>> {
-        if self.state == TrackState::Recording {
-            if let Some(ref buffer) = self.recording_buffer {
-                if let Ok(samples) = buffer.try_lock() {
-                    if samples.is_empty() {
-                        return None;
-                    }
-
-                    let total_samples = samples.len();
-
-                    if let (Ok(mut cache), Ok(mut last_pos)) = (
-                        self.waveform_cache.lock(),
-                        self.last_processed_sample.lock(),
-                    ) {
-                        let new_sample_count = total_samples.saturating_sub(*last_pos);
-
-                        if new_sample_count > 0 {
-                            let new_samples = &samples[*last_pos..];
-                            let samples_f64: Vec<f64> =
-                                new_samples.iter().map(|&s| s as f64).collect();
-
-                            let new_peaks = downsample_bipolar(&samples_f64);
-                            cache.extend(new_peaks);
-                            *last_pos = total_samples;
-                        }
-
-                        return Some(cache.clone());
-                    }
-                }
-            }
-        }
-
+    pub fn waveform(&self) -> Option<Vec<f64>> {
         let wav = self.wav_data.as_ref()?;
         let samples = wav.to_f64_samples();
 
@@ -315,7 +270,15 @@ impl Track {
             return None;
         }
 
-        Some(downsample_bipolar(&samples))
+        const MAX_POINTS: usize = 500;
+        let chunk_size = (samples.len() / MAX_POINTS).max(1);
+
+        Some(
+            samples
+                .chunks(chunk_size)
+                .map(|chunk| chunk.iter().map(|s| s.abs()).fold(0.0, f64::max))
+                .collect(),
+        )
     }
 
     pub fn play(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -441,21 +404,6 @@ impl Track {
     pub fn is_playing_track(&self) -> bool {
         self.is_playing.load(Ordering::Relaxed)
     }
-}
-
-/// Returns (min_peak, max_peak) tuples for drawing waveform from center axis.
-fn downsample_bipolar(samples: &[f64]) -> Vec<(f64, f64)> {
-    const MAX_POINTS: usize = 500;
-    let chunk_size = (samples.len() / MAX_POINTS).max(1);
-
-    samples
-        .chunks(chunk_size)
-        .map(|chunk| {
-            let min = chunk.iter().cloned().fold(f64::INFINITY, f64::min);
-            let max = chunk.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            (min, max)
-        })
-        .collect()
 }
 
 fn err_fn(err: cpal::StreamError) {

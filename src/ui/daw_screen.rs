@@ -2,10 +2,7 @@ use crossterm::event::KeyCode;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{
-        canvas::{Canvas, Line},
-        Block, Borders, Gauge, List, ListItem, Sparkline,
-    },
+    widgets::{Block, Borders, Gauge, List, ListItem, Sparkline},
     Frame,
 };
 
@@ -17,19 +14,16 @@ mod layout_config {
     use ratatui::style::Color;
 
     pub const LANE_PERCENTAGES: [u16; 3] = [33, 33, 34];
-    pub const SELECTED_BORDER: Color = Color::Cyan; // Bright cyan for selection
-    pub const DEFAULT_BORDER: Color = Color::DarkGray; // Dimmer for unselected
+    pub const SELECTED_BORDER: Color = Color::Yellow;
+    pub const DEFAULT_BORDER: Color = Color::White;
     pub const ARMED_BORDER: Color = Color::Red;
     pub const RECORDING_BORDER: Color = Color::Magenta;
-    pub const PLAYING_BORDER: Color = Color::Green; // Green for active playback
-    pub const EMPTY_LANE_MESSAGE: &str =
-        "Space: Play All | 'p': Solo | 'a': Arm | 'r': Record | 'f': Record Armed";
+    pub const EMPTY_LANE_MESSAGE: &str = "Space: Play All | 'p': Solo | 'a': Arm | 'r': Record";
     pub const LANE_STATUS_EMPTY: &str = "Empty";
     pub const LANE_STATUS_ARMED: &str = "ARMED";
     pub const LANE_STATUS_MUTED: &str = "MUTED";
     pub const LANE_STATUS_ACTIVE: &str = "ACTIVE";
     pub const LANE_STATUS_RECORDING: &str = "🔴 REC";
-    pub const SELECTED_MARKER: &str = ">>> ";
 
     pub fn get_lane_constraints() -> [Constraint; 3] {
         [
@@ -44,12 +38,9 @@ mod layout_config {
         volume: f64,
         status: &str,
         file_path: &str,
-        is_selected: bool,
     ) -> String {
-        let marker = if is_selected { SELECTED_MARKER } else { "" };
         format!(
-            "{}Lane {} | Vol: {:.0}% | {} | {}",
-            marker,
+            "Lane {} | Vol: {:.0}% | {} | {}",
             lane_num,
             volume * 100.0,
             status,
@@ -102,23 +93,18 @@ impl ScreenTrait for DawScreen {
             let track = &app.session.tracks[i];
             let is_selected = app.selected == i;
 
-            // Priority order for border colors (selection always gets priority)
-            let border_color = if track.state == crate::track::TrackState::Recording {
-                if is_selected {
-                    layout_config::SELECTED_BORDER // Cyan selection overrides recording
-                } else {
+            let border_color =
+                if app.session.transport.is_playing() && !track.muted && track.wav_data.is_some() {
+                    layout_config::SELECTED_BORDER // Show yellow when actively playing
+                } else if track.state == crate::track::TrackState::Recording {
                     layout_config::RECORDING_BORDER
-                }
-            } else if is_selected {
-                layout_config::SELECTED_BORDER // Bright cyan for selected
-            } else if app.session.transport.is_playing() && !track.muted && track.wav_data.is_some()
-            {
-                layout_config::PLAYING_BORDER // Green when playing
-            } else if track.armed {
-                layout_config::ARMED_BORDER // Red when armed
-            } else {
-                layout_config::DEFAULT_BORDER // Dark gray for inactive
-            };
+                } else if track.armed {
+                    layout_config::ARMED_BORDER
+                } else if is_selected {
+                    layout_config::SELECTED_BORDER
+                } else {
+                    layout_config::DEFAULT_BORDER
+                };
 
             let status = if track.state == crate::track::TrackState::Recording {
                 layout_config::LANE_STATUS_RECORDING
@@ -130,13 +116,8 @@ impl ScreenTrait for DawScreen {
                 layout_config::LANE_STATUS_ACTIVE
             };
 
-            let title = layout_config::format_lane_title(
-                i + 1,
-                track.volume,
-                status,
-                &track.file_path,
-                is_selected,
-            );
+            let title =
+                layout_config::format_lane_title(i + 1, track.volume, status, &track.file_path);
 
             let block = Block::default()
                 .borders(Borders::ALL)
@@ -144,45 +125,16 @@ impl ScreenTrait for DawScreen {
                 .title(title);
 
             if let Some(waveform) = track.waveform() {
-                // Use brighter color for selected track
-                let waveform_color = if is_selected {
-                    Color::White
-                } else {
-                    Color::Gray
-                };
-
-                let canvas = Canvas::default()
+                let max_val = waveform.iter().cloned().fold(0.0f64, f64::max).max(0.001);
+                let waveform_u64: Vec<u64> = waveform
+                    .iter()
+                    .map(|&v| ((v / max_val) * 100.0) as u64)
+                    .collect();
+                let sparkline = Sparkline::default()
                     .block(block)
-                    .x_bounds([0.0, waveform.len() as f64])
-                    .y_bounds([-1.0, 1.0])
-                    .paint(|ctx| {
-                        // Draw center line
-                        ctx.draw(&Line {
-                            x1: 0.0,
-                            y1: 0.0,
-                            x2: waveform.len() as f64,
-                            y2: 0.0,
-                            color: Color::DarkGray,
-                        });
-
-                        for (i, &(min, max)) in waveform.iter().enumerate() {
-                            let x = i as f64;
-                            // Amplify the waveform for better visibility
-                            const SENSITIVITY: f64 = 8.0;
-                            let y_min = (min * SENSITIVITY).clamp(-1.0, 1.0);
-                            let y_max = (max * SENSITIVITY).clamp(-1.0, 1.0);
-
-                            // Draw vertical line from min to max
-                            ctx.draw(&Line {
-                                x1: x,
-                                y1: y_min,
-                                x2: x,
-                                y2: y_max,
-                                color: waveform_color,
-                            });
-                        }
-                    });
-                f.render_widget(canvas, *chunk);
+                    .data(&waveform_u64)
+                    .style(Style::default().fg(layout_config::DEFAULT_BORDER));
+                f.render_widget(sparkline, *chunk);
             } else {
                 let list =
                     List::new(vec![ListItem::new(layout_config::EMPTY_LANE_MESSAGE)]).block(block);
