@@ -4,7 +4,7 @@ use crossterm::{
 };
 use rand::random;
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::{io, thread::JoinHandle};
+use std::{io, thread::JoinHandle, time::Instant};
 
 mod audio_preferences_screen;
 mod daw_screen;
@@ -37,7 +37,6 @@ pub struct App {
     pub record_duration: String,
     pub wav_file: Option<WavFile>,
     pub selected_effects: Vec<EffectInstance>,
-    pub handle: Option<JoinHandle<()>>,
     pub session: Session,
     pub input_mode: bool,
     pub input_buffer: String,
@@ -67,7 +66,6 @@ impl App {
             record_duration: String::from("10"),
             wav_file: None,
             selected_effects: vec![],
-            handle: None,
             session,
             input_mode: false,
             input_buffer: String::new(),

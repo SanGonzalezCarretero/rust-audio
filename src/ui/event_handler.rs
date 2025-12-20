@@ -14,7 +14,6 @@ mod event_config {
     pub const POLL_TIMEOUT_MS: u64 = 100;
     pub const QUIT_KEY: char = 'q';
     pub const BACK_KEY: KeyCode = KeyCode::Esc;
-    pub const RECORDED_STATUS: &str = "Recorded";
 }
 
 pub struct AppEventHandler;
@@ -31,13 +30,6 @@ impl AppEventHandler {
     }
 
     fn update_background_tasks(app: &mut App) {
-        if let Some(ref handle) = app.handle {
-            if handle.is_finished() {
-                app.handle = None;
-                app.status = event_config::RECORDED_STATUS.to_string();
-            }
-        }
-
         // Check if playback has finished and reset transport state
         app.session.check_playback_status();
     }
