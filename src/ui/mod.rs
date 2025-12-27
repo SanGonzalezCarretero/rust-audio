@@ -44,11 +44,13 @@ pub struct App {
     pub configuring_effects: Vec<(usize, Vec<(String, String)>)>, // (effect_index, parameters_with_empty_values)
     pub audio_prefs_input_selected: usize,
     pub audio_prefs_output_selected: usize,
-    pub debug_logger: DebugLogger,
 }
 
 impl App {
     fn new(debug_mode: bool) -> Self {
+        // Initialize global DebugLogger
+        DebugLogger::init(debug_mode);
+
         // Get device sample rate to avoid pitch issues
         let sample_rate = AudioEngine::get_output_device()
             .map(|d| d.sample_rate)
@@ -73,12 +75,11 @@ impl App {
             configuring_effects: vec![],
             audio_prefs_input_selected: 0,
             audio_prefs_output_selected: 0,
-            debug_logger: DebugLogger::new(debug_mode),
         }
     }
 
     pub fn debug_log(&self, message: String) {
-        self.debug_logger.log(message);
+        DebugLogger::log_global(message);
     }
 }
 
@@ -99,8 +100,6 @@ pub fn run(debug_mode: bool) -> Result<(), Box<dyn std::error::Error>> {
         if event_handler::AppEventHandler::process_events(&mut app)? {
             break;
         }
-
-        app.debug_log(format!("{:?}", random::<f64>()));
     }
 
     disable_raw_mode()?;

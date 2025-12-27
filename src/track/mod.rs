@@ -1,6 +1,7 @@
 use crate::audio_engine::AudioEngine;
 use crate::device::{AudioDevice, DeviceProvider};
 use crate::effects::EffectInstance;
+use crate::ui::DebugLogger;
 use crate::wav::WavFile;
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{BufferSize, Stream};
@@ -17,7 +18,6 @@ use std::sync::{
 const AUDIO_BUFFER_SIZE: u32 = 32; // Frames per callback (~0.67ms @ 48kHz)
 const RING_BUFFER_MULTIPLIER: usize = 2; // Ring size = buffer_size * multiplier
 const PREFILL_BUFFER_COUNT: usize = 0; // Number of buffers to pre-fill with silence
-const MONITOR_BUFFER_SAMPLES: usize = 4800; // ~100ms @ 48kHz for UI visualization
 
 const LATENCY_MS: f32 = 10.0;
 
@@ -36,9 +36,6 @@ pub struct Track {
 
     // FX chain
     pub fx_chain: Vec<EffectInstance>,
-
-    // Monitoring buffer - for live display visualization
-    pub monitor_buffer: Arc<Mutex<Vec<f32>>>,
 
     // Playback data (recorded or loaded)
     pub wav_data: Option<WavFile>,
@@ -68,7 +65,6 @@ impl Track {
             monitoring: false,
             state: TrackState::Idle,
             fx_chain: vec![],
-            monitor_buffer: Arc::new(Mutex::new(vec![0.0; MONITOR_BUFFER_SAMPLES])),
             wav_data: None,
             file_path: String::new(),
             volume: 1.0,
@@ -120,14 +116,7 @@ impl Track {
             let _ = producer.try_push(0.0);
         }
 
-        let monitor_buffer = Arc::clone(&self.monitor_buffer);
-
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            if let Ok(mut buffer) = monitor_buffer.try_lock() {
-                buffer.truncate(0);
-                buffer.extend_from_slice(data);
-            }
-
             let _ = producer.push_slice(data);
         };
 
@@ -179,26 +168,43 @@ impl Track {
         }
 
         let input_device = AudioEngine::get_input_device()?;
+        let output_device = AudioDevice::OUTPUT.default()?;
 
         let mut config = input_device.config.clone();
         let sample_rate = config.sample_rate.0;
         let recording_buffer_size = (sample_rate as f32 * LATENCY_MS / 1000.0) as u32;
+
+        let buffer_samples = recording_buffer_size as usize * config.channels as usize;
+        let ring_size = buffer_samples * RING_BUFFER_MULTIPLIER;
+        let ring = HeapRb::<f32>::new(ring_size);
+        let (mut producer, mut consumer) = ring.split();
 
         config.buffer_size = BufferSize::Fixed(recording_buffer_size);
 
         let recorded_samples = Arc::new(Mutex::new(Vec::new()));
         let recorded_samples_clone = Arc::clone(&recorded_samples);
 
-        let monitor_buffer = Arc::clone(&self.monitor_buffer);
-
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            if let Ok(mut buffer) = monitor_buffer.try_lock() {
-                buffer.truncate(0);
-                buffer.extend_from_slice(data);
+            let _ = producer.push_slice(data);
+
+            if let Ok(mut samples) = recorded_samples_clone.lock() {
+                samples.extend_from_slice(data);
+            }
+        };
+
+        let output_data_fn = move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+            let popped = consumer.pop_slice(data);
+
+            for sample in &mut data[popped..] {
+                *sample = 0.0;
             }
 
-            if let Ok(mut samples) = recorded_samples_clone.try_lock() {
-                samples.extend_from_slice(data);
+            if config.channels == 2 && popped > 0 {
+                for i in (0..popped).step_by(2) {
+                    if i + 1 < data.len() {
+                        data[i + 1] = data[i];
+                    }
+                }
             }
         };
 
@@ -207,9 +213,16 @@ impl Track {
                 .device
                 .build_input_stream(&config, input_data_fn, err_fn, None)?;
 
+        let output_stream =
+            output_device
+                .device
+                .build_output_stream(&config, output_data_fn, err_fn, None)?;
+
         input_stream.play()?;
+        output_stream.play()?;
 
         self.input_stream = Some(input_stream);
+        self.output_stream = Some(output_stream);
         self.state = TrackState::Recording;
 
         self.recording_buffer = Some(recorded_samples);
@@ -245,6 +258,7 @@ impl Track {
         self.recording_channels = None;
         self.recording_sample_rate = None;
         self.state = TrackState::Armed;
+
         Ok(())
     }
 
@@ -287,7 +301,6 @@ impl Track {
         let sample_rate = wav.header.sample_rate;
         let channels = wav.header.num_channels;
 
-        // Reset flag
         self.is_playing.store(true, Ordering::Relaxed);
 
         let is_playing_flag = Arc::clone(&self.is_playing);
