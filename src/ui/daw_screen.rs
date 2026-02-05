@@ -2,7 +2,10 @@ use crossterm::event::KeyCode;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Borders, Gauge, List, ListItem, Sparkline},
+    widgets::{
+        canvas::{Canvas, Line},
+        Block, Borders, Gauge, List, ListItem,
+    },
     Frame,
 };
 
@@ -18,7 +21,8 @@ mod layout_config {
     pub const DEFAULT_BORDER: Color = Color::White;
     pub const ARMED_BORDER: Color = Color::Red;
     pub const RECORDING_BORDER: Color = Color::Magenta;
-    pub const EMPTY_LANE_MESSAGE: &str = "Space: Play All | 'p': Solo | 'a': Arm | 'r': Record";
+    pub const EMPTY_LANE_MESSAGE: &str =
+        "Space: Play All | 'p': Solo | 'a': Arm | 'r': Record | 'f': Record Armed";
     pub const LANE_STATUS_EMPTY: &str = "Empty";
     pub const LANE_STATUS_ARMED: &str = "ARMED";
     pub const LANE_STATUS_MUTED: &str = "MUTED";
@@ -125,16 +129,37 @@ impl ScreenTrait for DawScreen {
                 .title(title);
 
             if let Some(waveform) = track.waveform() {
-                let max_val = waveform.iter().cloned().fold(0.0f64, f64::max).max(0.001);
-                let waveform_u64: Vec<u64> = waveform
-                    .iter()
-                    .map(|&v| ((v / max_val) * 100.0) as u64)
-                    .collect();
-                let sparkline = Sparkline::default()
+                let canvas = Canvas::default()
                     .block(block)
-                    .data(&waveform_u64)
-                    .style(Style::default().fg(layout_config::DEFAULT_BORDER));
-                f.render_widget(sparkline, *chunk);
+                    .x_bounds([0.0, waveform.len() as f64])
+                    .y_bounds([-1.0, 1.0])
+                    .paint(|ctx| {
+                        ctx.draw(&Line {
+                            x1: 0.0,
+                            y1: 0.0,
+                            x2: waveform.len() as f64,
+                            y2: 0.0,
+                            color: Color::DarkGray,
+                        });
+
+                        for (i, &(min, max)) in waveform.iter().enumerate() {
+                            let x = i as f64;
+                            // Amplify the waveform for better visibility
+                            const SENSITIVITY: f64 = 8.0;
+                            let y_min = (min * SENSITIVITY).clamp(-1.0, 1.0);
+                            let y_max = (max * SENSITIVITY).clamp(-1.0, 1.0);
+
+                            // Draw vertical line from min to max
+                            ctx.draw(&Line {
+                                x1: x,
+                                y1: y_min,
+                                x2: x,
+                                y2: y_max,
+                                color: layout_config::DEFAULT_BORDER,
+                            });
+                        }
+                    });
+                f.render_widget(canvas, *chunk);
             } else {
                 let list =
                     List::new(vec![ListItem::new(layout_config::EMPTY_LANE_MESSAGE)]).block(block);
@@ -285,6 +310,29 @@ impl ScreenTrait for DawScreen {
 
             KeyCode::Char('x') => {
                 app.status = "Export mixed audio".to_string();
+            }
+
+            KeyCode::Char('f') => {
+                // Record all armed tracks simultaneously
+                let mut recording_count = 0;
+                let mut errors = Vec::new();
+
+                for (i, track) in app.session.tracks.iter_mut().enumerate() {
+                    if track.armed {
+                        match track.start_recording() {
+                            Ok(_) => recording_count += 1,
+                            Err(e) => errors.push(format!("Track {}: {}", i + 1, e)),
+                        }
+                    }
+                }
+
+                if recording_count > 0 {
+                    app.status = format!("Recording {} armed track(s)", recording_count);
+                } else if !errors.is_empty() {
+                    app.status = format!("Errors: {}", errors.join(", "));
+                } else {
+                    app.status = "No armed tracks to record".to_string();
+                }
             }
 
             _ => {}

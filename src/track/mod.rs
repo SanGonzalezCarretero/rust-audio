@@ -10,7 +10,7 @@ use ringbuf::{
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+    Arc, Mutex, RwLock,
 };
 
 // Audio configuration constants
@@ -26,6 +26,38 @@ pub enum TrackState {
     Idle,
     Armed,
     Recording,
+}
+
+pub struct ThreadHandles {
+    pub waveform: Option<std::thread::JoinHandle<()>>,
+    waveform_stop: Arc<AtomicBool>,
+}
+
+impl Default for ThreadHandles {
+    fn default() -> Self {
+        Self {
+            waveform: None,
+            waveform_stop: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl ThreadHandles {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn stop_waveform(&self) {
+        self.waveform_stop.store(true, Ordering::Relaxed);
+    }
+
+    pub fn reset_waveform_stop(&self) {
+        self.waveform_stop.store(false, Ordering::Relaxed);
+    }
+
+    pub fn waveform_stop(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.waveform_stop)
+    }
 }
 
 pub struct Track {
@@ -54,16 +86,22 @@ pub struct Track {
     output_stream: Option<Stream>,
     playback_thread: Option<std::thread::JoinHandle<()>>,
 
-    // Recording buffer
-    recording_buffer: Option<Arc<Mutex<Vec<f32>>>>,
+    // Recording buffer (RwLock allows concurrent reads while recording)
+    recording_buffer: Option<Arc<RwLock<Vec<f32>>>>,
     recording_channels: Option<u16>,
     recording_sample_rate: Option<u32>,
+
+    // Thread handles for background processing
+    thread_handles: ThreadHandles,
+
+    // Waveform result (written by background thread, read by UI)
+    waveform: Arc<RwLock<Vec<(f64, f64)>>>,
 }
 
-impl Track {
-    pub fn new(name: String) -> Self {
+impl Default for Track {
+    fn default() -> Self {
         Track {
-            name,
+            name: "Untitled".to_string(),
             armed: false,
             monitoring: false,
             state: TrackState::Idle,
@@ -80,6 +118,17 @@ impl Track {
             recording_buffer: None,
             recording_channels: None,
             recording_sample_rate: None,
+            thread_handles: ThreadHandles::new(),
+            waveform: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+}
+
+impl Track {
+    pub fn new(name: String) -> Self {
+        Track {
+            name,
+            ..Self::default()
         }
     }
 
@@ -186,7 +235,7 @@ impl Track {
 
         config.buffer_size = BufferSize::Fixed(recording_buffer_size);
 
-        let recorded_samples = Arc::new(Mutex::new(Vec::new()));
+        let recorded_samples = Arc::new(RwLock::new(Vec::new()));
         let recorded_samples_clone = Arc::clone(&recorded_samples);
 
         let monitor_buffer = Arc::clone(&self.monitor_buffer);
@@ -197,7 +246,8 @@ impl Track {
                 buffer.extend_from_slice(data);
             }
 
-            if let Ok(mut samples) = recorded_samples_clone.try_lock() {
+            // Write lock for adding new samples
+            if let Ok(mut samples) = recorded_samples_clone.write() {
                 samples.extend_from_slice(data);
             }
         };
@@ -216,6 +266,62 @@ impl Track {
         self.recording_channels = Some(config.channels);
         self.recording_sample_rate = Some(sample_rate);
 
+        // Reset waveform result for new recording
+        if let Ok(mut waveform) = self.waveform.write() {
+            waveform.clear();
+        }
+
+        // Reset stop flag and prepare for thread spawn
+        self.thread_handles.reset_waveform_stop();
+
+        // Clone shared state for background thread
+        let recording_buffer_clone = Arc::clone(self.recording_buffer.as_ref().unwrap());
+        let waveform_clone = Arc::clone(&self.waveform);
+        let should_stop = self.thread_handles.waveform_stop();
+
+        let handle = std::thread::spawn(move || {
+            const UPDATE_INTERVAL_MS: u64 = 50; // Update ~20 times per second
+
+            // Track which raw samples have been processed (needed for incremental processing)
+            let mut last_processed_sample: usize = 0;
+
+            loop {
+                // Check stop flag
+                if should_stop.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                // Read new samples from recording buffer
+                if let Ok(samples) = recording_buffer_clone.try_read() {
+                    if !samples.is_empty() {
+                        let total_samples = samples.len();
+                        let new_sample_count = total_samples.saturating_sub(last_processed_sample);
+
+                        if new_sample_count > 0 {
+                            // Extract and process only new samples
+                            let new_samples = &samples[last_processed_sample..];
+                            let samples_f64: Vec<f64> =
+                                new_samples.iter().map(|&s| s as f64).collect();
+
+                            // Downsample to peaks
+                            let new_peaks = downsample_bipolar(&samples_f64);
+                            last_processed_sample = total_samples;
+
+                            // Extend waveform directly (no local cache needed)
+                            if let Ok(mut waveform) = waveform_clone.write() {
+                                waveform.extend(new_peaks);
+                            }
+                        }
+                    }
+                }
+
+                // Sleep to avoid busy-waiting
+                std::thread::sleep(std::time::Duration::from_millis(UPDATE_INTERVAL_MS));
+            }
+        });
+
+        self.thread_handles.waveform = Some(handle);
+
         Ok(())
     }
 
@@ -224,11 +330,19 @@ impl Track {
             return Err("Not currently recording".into());
         }
 
+        // Signal waveform thread to stop
+        self.thread_handles.stop_waveform();
+
+        // Wait for waveform thread to finish (allows final processing)
+        if let Some(handle) = self.thread_handles.waveform.take() {
+            let _ = handle.join();
+        }
+
         self.input_stream = None;
         self.output_stream = None;
 
         if let Some(buffer) = self.recording_buffer.take() {
-            if let Ok(samples) = buffer.lock() {
+            if let Ok(samples) = buffer.read() {
                 if !samples.is_empty() {
                     let channels = self.recording_channels.unwrap_or(1);
                     let sample_rate = self.recording_sample_rate.unwrap_or(48000);
@@ -248,7 +362,19 @@ impl Track {
         Ok(())
     }
 
-    pub fn waveform(&self) -> Option<Vec<f64>> {
+    pub fn waveform(&self) -> Option<Vec<(f64, f64)>> {
+        // During recording, read from background thread's result
+        if self.state == TrackState::Recording {
+            if let Ok(waveform) = self.waveform.read() {
+                if waveform.is_empty() {
+                    return None;
+                }
+                return Some(waveform.clone());
+            }
+            return None;
+        }
+
+        // For non-recording tracks, process from wav_data synchronously
         let wav = self.wav_data.as_ref()?;
         let samples = wav.to_f64_samples();
 
@@ -256,15 +382,7 @@ impl Track {
             return None;
         }
 
-        const MAX_POINTS: usize = 500;
-        let chunk_size = (samples.len() / MAX_POINTS).max(1);
-
-        Some(
-            samples
-                .chunks(chunk_size)
-                .map(|chunk| chunk.iter().map(|s| s.abs()).fold(0.0, f64::max))
-                .collect(),
-        )
+        Some(downsample_bipolar(&samples))
     }
 
     pub fn play(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -391,6 +509,21 @@ impl Track {
     pub fn is_playing_track(&self) -> bool {
         self.is_playing.load(Ordering::Relaxed)
     }
+}
+
+/// Returns (min_peak, max_peak) tuples for drawing waveform from center axis.
+fn downsample_bipolar(samples: &[f64]) -> Vec<(f64, f64)> {
+    const MAX_POINTS: usize = 500;
+    let chunk_size = (samples.len() / MAX_POINTS).max(1);
+
+    samples
+        .chunks(chunk_size)
+        .map(|chunk| {
+            let min = chunk.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = chunk.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            (min, max)
+        })
+        .collect()
 }
 
 fn err_fn(err: cpal::StreamError) {
