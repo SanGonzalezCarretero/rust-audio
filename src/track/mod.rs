@@ -19,7 +19,7 @@ const RING_BUFFER_MULTIPLIER: usize = 2; // Ring size = buffer_size * multiplier
 const PREFILL_BUFFER_COUNT: usize = 0; // Number of buffers to pre-fill with silence
 const MONITOR_BUFFER_SAMPLES: usize = 4800; // ~100ms @ 48kHz for UI visualization
 
-const LATENCY_MS: f32 = 10.0;
+pub const LATENCY_MS: f32 = 10.0;
 
 // Fixed chunk size for recording waveform: each peak point = this many raw samples.
 // ~20ms at 48kHz → stable left-to-right waveform growth during recording.
@@ -233,50 +233,17 @@ impl Track {
         self.monitoring = false;
     }
 
-    pub fn start_recording(&mut self, playhead_position: u64) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.armed {
-            return Err("Track must be armed to record".into());
-        }
+    /// Prepare this track for recording: set up buffers and waveform thread.
+    /// Does NOT open any audio device or stream — the Session owns the shared input stream.
+    pub fn prepare_recording(&mut self, playhead_position: u64, sample_rate: u32, channels: u16) {
+        self.stop_monitoring();
 
         self.recording_start_position = playhead_position;
 
-        let input_device = AudioEngine::get_input_device()?;
-
-        let mut config = input_device.config.clone();
-        let sample_rate = config.sample_rate.0;
-        let recording_buffer_size = (sample_rate as f32 * LATENCY_MS / 1000.0) as u32;
-
-        config.buffer_size = BufferSize::Fixed(recording_buffer_size);
-
         let recorded_samples = Arc::new(RwLock::new(Vec::new()));
-        let recorded_samples_clone = Arc::clone(&recorded_samples);
 
-        let monitor_buffer = Arc::clone(&self.monitor_buffer);
-
-        let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            if let Ok(mut buffer) = monitor_buffer.try_lock() {
-                buffer.truncate(0);
-                buffer.extend_from_slice(data);
-            }
-
-            // Write lock for adding new samples
-            if let Ok(mut samples) = recorded_samples_clone.write() {
-                samples.extend_from_slice(data);
-            }
-        };
-
-        let input_stream =
-            input_device
-                .device
-                .build_input_stream(&config, input_data_fn, err_fn, None)?;
-
-        input_stream.play()?;
-
-        self.input_stream = Some(input_stream);
-        self.state = TrackState::Recording;
-
-        self.recording_buffer = Some(recorded_samples);
-        self.recording_channels = Some(config.channels);
+        self.recording_buffer = Some(Arc::clone(&recorded_samples));
+        self.recording_channels = Some(channels);
         self.recording_sample_rate = Some(sample_rate);
 
         // Reset waveform result for new recording
@@ -284,11 +251,13 @@ impl Track {
             waveform.clear();
         }
 
+        self.state = TrackState::Recording;
+
         // Reset stop flag and prepare for thread spawn
         self.thread_handles.reset_waveform_stop();
 
         // Clone shared state for background thread
-        let recording_buffer_clone = Arc::clone(self.recording_buffer.as_ref().unwrap());
+        let recording_buffer_clone = Arc::clone(&recorded_samples);
         let waveform_clone = Arc::clone(&self.waveform);
         let should_stop = self.thread_handles.waveform_stop();
 
@@ -333,8 +302,16 @@ impl Track {
         });
 
         self.thread_handles.waveform = Some(handle);
+    }
 
-        Ok(())
+    /// Get a clone of the recording buffer Arc, if recording is prepared.
+    pub fn recording_buffer_handle(&self) -> Option<Arc<RwLock<Vec<f32>>>> {
+        self.recording_buffer.as_ref().map(Arc::clone)
+    }
+
+    /// Get a clone of the monitor buffer Arc.
+    pub fn monitor_buffer_handle(&self) -> Arc<Mutex<Vec<f32>>> {
+        Arc::clone(&self.monitor_buffer)
     }
 
     pub fn stop_recording(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -350,7 +327,6 @@ impl Track {
             let _ = handle.join();
         }
 
-        self.input_stream = None;
         self.output_stream = None;
 
         if let Some(buffer) = self.recording_buffer.take() {

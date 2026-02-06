@@ -1,4 +1,8 @@
-use crate::track::Track;
+use crate::audio_engine::AudioEngine;
+use crate::track::{Track, LATENCY_MS};
+use cpal::traits::{DeviceTrait, StreamTrait};
+use cpal::{BufferSize, Stream};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +73,7 @@ pub struct Session {
     pub tracks: Vec<Track>,
     pub sample_rate: u32,
     pub transport: Transport,
+    shared_input_stream: Option<Stream>,
 }
 
 impl Session {
@@ -78,6 +83,7 @@ impl Session {
             tracks: Vec::new(),
             sample_rate,
             transport: Transport::default(),
+            shared_input_stream: None,
         }
     }
 
@@ -143,6 +149,73 @@ impl Session {
         Ok(())
     }
 
+    /// Start recording on all armed tracks using a single shared input stream.
+    /// Returns the number of tracks that started recording.
+    pub fn start_recording(&mut self) -> Result<usize, Box<dyn std::error::Error>> {
+        let armed_count = self.tracks.iter().filter(|t| t.armed).count();
+        if armed_count == 0 {
+            return Ok(0);
+        }
+
+        // Get input device ONCE
+        let input_device = AudioEngine::get_input_device()?;
+        let mut config = input_device.config.clone();
+        let sample_rate = config.sample_rate.0;
+        let channels = config.channels;
+        let recording_buffer_size = (sample_rate as f32 * LATENCY_MS / 1000.0) as u32;
+        config.buffer_size = BufferSize::Fixed(recording_buffer_size);
+
+        let playhead_pos = self.transport.playhead_position;
+
+        // Prepare all armed tracks (sets up buffers, waveform threads, state)
+        for track in &mut self.tracks {
+            if track.armed {
+                track.prepare_recording(playhead_pos, sample_rate, channels);
+            }
+        }
+
+        // Collect Arc handles from all recording tracks
+        let mut rec_buffers: Vec<Arc<RwLock<Vec<f32>>>> = Vec::new();
+        let mut mon_buffers: Vec<Arc<Mutex<Vec<f32>>>> = Vec::new();
+
+        for track in &self.tracks {
+            if let Some(buf) = track.recording_buffer_handle() {
+                rec_buffers.push(buf);
+                mon_buffers.push(track.monitor_buffer_handle());
+            }
+        }
+
+        // Build ONE input stream that fans data to ALL recording tracks
+        let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+            for mon in &mon_buffers {
+                if let Ok(mut buffer) = mon.try_lock() {
+                    buffer.truncate(0);
+                    buffer.extend_from_slice(data);
+                }
+            }
+            for rec in &rec_buffers {
+                if let Ok(mut samples) = rec.write() {
+                    samples.extend_from_slice(data);
+                }
+            }
+        };
+
+        let input_stream = input_device.device.build_input_stream(
+            &config,
+            input_data_fn,
+            |err| eprintln!("Shared input stream error: {err}"),
+            None,
+        )?;
+
+        input_stream.play()?;
+        self.shared_input_stream = Some(input_stream);
+
+        // Start overdub playback on non-recording tracks
+        self.start_overdub_playback();
+
+        Ok(armed_count)
+    }
+
     /// Start playback on non-recording tracks so the user hears them while recording (overdub).
     pub fn start_overdub_playback(&mut self) {
         let playhead_pos = self.transport.playhead_position;
@@ -167,6 +240,9 @@ impl Session {
 
     /// Stop recording on all tracks that are recording, and stop playback.
     pub fn stop_all_recording(&mut self) {
+        // Drop shared input stream FIRST to stop audio capture
+        self.shared_input_stream = None;
+
         for track in &mut self.tracks {
             if track.state == crate::track::TrackState::Recording {
                 let _ = track.stop_recording();

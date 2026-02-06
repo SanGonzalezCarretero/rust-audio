@@ -329,28 +329,17 @@ impl ScreenTrait for DawScreen {
                     app.session.stop_all_recording();
                     app.status = "Recording stopped".to_string();
                 } else {
-                    // Start recording on all armed tracks
-                    let playhead_pos = app.session.transport.playhead_position;
-                    let mut recording_count = 0;
-                    let mut errors = Vec::new();
-
-                    for (i, track) in app.session.tracks.iter_mut().enumerate() {
-                        if track.armed {
-                            match track.start_recording(playhead_pos) {
-                                Ok(_) => recording_count += 1,
-                                Err(e) => errors.push(format!("Track {}: {}", i + 1, e)),
-                            }
+                    // Start recording on all armed tracks via shared input stream
+                    match app.session.start_recording() {
+                        Ok(0) => {
+                            app.status = "No armed tracks to record (press 'a')".to_string();
                         }
-                    }
-
-                    if recording_count > 0 {
-                        // Start playback on non-recording tracks (overdub)
-                        app.session.start_overdub_playback();
-                        app.status = format!("Recording {} armed track(s)", recording_count);
-                    } else if !errors.is_empty() {
-                        app.status = format!("Errors: {}", errors.join(", "));
-                    } else {
-                        app.status = "No armed tracks to record (press 'a')".to_string();
+                        Ok(count) => {
+                            app.status = format!("Recording {} armed track(s)", count);
+                        }
+                        Err(e) => {
+                            app.status = format!("Recording error: {}", e);
+                        }
                     }
                 }
             }
