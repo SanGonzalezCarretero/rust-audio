@@ -509,6 +509,24 @@ impl Track {
     pub fn is_playing_track(&self) -> bool {
         self.is_playing.load(Ordering::Relaxed)
     }
+
+    pub fn cleanup(&mut self) {
+        // Stop playback
+        self.stop_playback();
+
+        // Stop recording if active
+        if self.state == TrackState::Recording {
+            let _ = self.stop_recording();
+        }
+
+        // Disarm if armed
+        if self.armed {
+            self.disarm();
+        }
+
+        // Stop monitoring (disarm already does this, but be explicit)
+        self.stop_monitoring();
+    }
 }
 
 /// Returns (min_peak, max_peak) tuples for drawing waveform from center axis.

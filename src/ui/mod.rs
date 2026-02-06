@@ -3,7 +3,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::{io, thread::JoinHandle, time::Instant};
+use std::io;
 
 mod audio_preferences_screen;
 mod daw_screen;
@@ -54,9 +54,7 @@ impl App {
             .unwrap_or(48000);
 
         let mut session = Session::new("Untitled Project".to_string(), sample_rate);
-        session.add_track("Track 1".to_string());
-        session.add_track("Track 2".to_string());
-        session.add_track("Track 3".to_string());
+        let _ = session.add_track("Track 1".to_string());
 
         App {
             screen: Screen::MainMenu,
