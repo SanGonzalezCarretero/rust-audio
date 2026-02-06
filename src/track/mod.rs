@@ -21,6 +21,15 @@ const MONITOR_BUFFER_SAMPLES: usize = 4800; // ~100ms @ 48kHz for UI visualizati
 
 const LATENCY_MS: f32 = 10.0;
 
+// Fixed chunk size for recording waveform: each peak point = this many raw samples.
+// ~20ms at 48kHz → stable left-to-right waveform growth during recording.
+pub const RECORDING_WAVEFORM_CHUNK_SIZE: usize = 960;
+
+pub struct Clip {
+    pub wav_data: WavFile,
+    pub starts_at: u64, // sample position on the timeline
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackState {
     Idle,
@@ -73,8 +82,9 @@ pub struct Track {
     pub monitor_buffer: Arc<Mutex<Vec<f32>>>,
 
     // Playback data (recorded or loaded)
-    pub wav_data: Option<WavFile>,
+    pub clips: Vec<Clip>,
     pub file_path: String,
+    pub recording_start_position: u64,
 
     // Playback state
     pub volume: f64,
@@ -107,8 +117,9 @@ impl Default for Track {
             state: TrackState::Idle,
             fx_chain: vec![],
             monitor_buffer: Arc::new(Mutex::new(vec![0.0; MONITOR_BUFFER_SAMPLES])),
-            wav_data: None,
+            clips: Vec::new(),
             file_path: String::new(),
+            recording_start_position: 0,
             volume: 1.0,
             muted: false,
             is_playing: Arc::new(AtomicBool::new(false)),
@@ -222,10 +233,12 @@ impl Track {
         self.monitoring = false;
     }
 
-    pub fn start_recording(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn start_recording(&mut self, playhead_position: u64) -> Result<(), Box<dyn std::error::Error>> {
         if !self.armed {
             return Err("Track must be armed to record".into());
         }
+
+        self.recording_start_position = playhead_position;
 
         let input_device = AudioEngine::get_input_device()?;
 
@@ -282,40 +295,39 @@ impl Track {
         let handle = std::thread::spawn(move || {
             const UPDATE_INTERVAL_MS: u64 = 50; // Update ~20 times per second
 
-            // Track which raw samples have been processed (needed for incremental processing)
-            let mut last_processed_sample: usize = 0;
+            // Track how many raw samples have been fully processed into waveform points.
+            // Only complete chunks of RECORDING_WAVEFORM_CHUNK_SIZE are consumed.
+            let mut processed_samples: usize = 0;
 
             loop {
-                // Check stop flag
                 if should_stop.load(Ordering::Relaxed) {
                     break;
                 }
 
-                // Read new samples from recording buffer
                 if let Ok(samples) = recording_buffer_clone.try_read() {
-                    if !samples.is_empty() {
-                        let total_samples = samples.len();
-                        let new_sample_count = total_samples.saturating_sub(last_processed_sample);
+                    let total = samples.len();
+                    let unprocessed = total - processed_samples;
+                    let complete_chunks = unprocessed / RECORDING_WAVEFORM_CHUNK_SIZE;
 
-                        if new_sample_count > 0 {
-                            // Extract and process only new samples
-                            let new_samples = &samples[last_processed_sample..];
-                            let samples_f64: Vec<f64> =
-                                new_samples.iter().map(|&s| s as f64).collect();
+                    if complete_chunks > 0 {
+                        let process_up_to =
+                            processed_samples + complete_chunks * RECORDING_WAVEFORM_CHUNK_SIZE;
+                        let new_samples = &samples[processed_samples..process_up_to];
+                        let samples_f64: Vec<f64> =
+                            new_samples.iter().map(|&s| s as f64).collect();
 
-                            // Downsample to peaks
-                            let new_peaks = downsample_bipolar(&samples_f64);
-                            last_processed_sample = total_samples;
+                        let new_peaks = downsample_bipolar_fixed(
+                            &samples_f64,
+                            RECORDING_WAVEFORM_CHUNK_SIZE,
+                        );
+                        processed_samples = process_up_to;
 
-                            // Extend waveform directly (no local cache needed)
-                            if let Ok(mut waveform) = waveform_clone.write() {
-                                waveform.extend(new_peaks);
-                            }
+                        if let Ok(mut waveform) = waveform_clone.write() {
+                            waveform.extend(new_peaks);
                         }
                     }
                 }
 
-                // Sleep to avoid busy-waiting
                 std::thread::sleep(std::time::Duration::from_millis(UPDATE_INTERVAL_MS));
             }
         });
@@ -351,7 +363,10 @@ impl Track {
                     let mut wav = WavFile::new(sample_rate, channels);
                     wav.from_f64_samples(&samples_f64);
 
-                    self.wav_data = Some(wav);
+                    self.clips.push(Clip {
+                        wav_data: wav,
+                        starts_at: self.recording_start_position,
+                    });
                 }
             }
         }
@@ -374,36 +389,79 @@ impl Track {
             return None;
         }
 
-        // For non-recording tracks, process from wav_data synchronously
-        let wav = self.wav_data.as_ref()?;
-        let samples = wav.to_f64_samples();
-
-        if samples.is_empty() {
+        if self.clips.is_empty() {
             return None;
         }
 
-        Some(downsample_bipolar(&samples))
+        // Composite all clips into a single sample buffer
+        let end_sample = self.clips.iter().map(|clip| {
+            clip.starts_at + clip.wav_data.to_f64_samples().len() as u64
+        }).max().unwrap_or(0);
+
+        if end_sample == 0 {
+            return None;
+        }
+
+        let mut mixed = vec![0.0f64; end_sample as usize];
+
+        for clip in &self.clips {
+            let clip_samples = clip.wav_data.to_f64_samples();
+            for (j, &sample) in clip_samples.iter().enumerate() {
+                let pos = clip.starts_at as usize + j;
+                if pos < mixed.len() {
+                    mixed[pos] += sample;
+                }
+            }
+        }
+
+        Some(downsample_bipolar(&mixed))
     }
 
-    pub fn play(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn play_from(&mut self, playhead_position: u64, _session_sample_rate: u32) -> Result<(), Box<dyn std::error::Error>> {
         // Stop any existing playback first
         self.stop_playback();
 
-        let wav = self.wav_data.as_ref().ok_or("No audio data to play")?;
-        let samples: Vec<f64> = wav
-            .to_f64_samples()
-            .iter()
-            .map(|&s| s * self.volume)
-            .collect();
+        if self.clips.is_empty() {
+            return Ok(()); // Nothing to play — not an error
+        }
+
+        // Use the clip's own sample rate for the audio stream to preserve correct pitch
+        let sample_rate = self.clips[0].wav_data.header.sample_rate;
+        let channels = self.clips[0].wav_data.header.num_channels;
+
+        // Find the end of the furthest clip
+        let end_sample = self.clips.iter().map(|clip| {
+            clip.starts_at + clip.wav_data.to_f64_samples().len() as u64
+        }).max().unwrap_or(0);
+
+        if playhead_position >= end_sample {
+            return Ok(()); // Playhead is past all clips — nothing to play
+        }
+
+        // Build mixed buffer from playhead_position to end
+        let buffer_len = (end_sample - playhead_position) as usize;
+        let mut mixed = vec![0.0f64; buffer_len];
+
+        for clip in &self.clips {
+            let clip_samples = clip.wav_data.to_f64_samples();
+            for (j, &sample) in clip_samples.iter().enumerate() {
+                let absolute_pos = clip.starts_at + j as u64;
+                if absolute_pos >= playhead_position && absolute_pos < end_sample {
+                    let buf_idx = (absolute_pos - playhead_position) as usize;
+                    mixed[buf_idx] += sample;
+                }
+            }
+        }
+
+        // Apply volume
+        let volume = self.volume;
+        let samples: Vec<f64> = mixed.iter().map(|&s| s * volume).collect();
 
         let output_device = {
             let engine = AudioEngine::global();
             let engine = engine.lock().unwrap();
             engine.selected_output().map(|s| s.to_string())
         };
-
-        let sample_rate = wav.header.sample_rate;
-        let channels = wav.header.num_channels;
 
         // Reset flag
         self.is_playing.store(true, Ordering::Relaxed);
@@ -447,7 +505,6 @@ impl Track {
                 &config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     if !is_playing_for_closure.load(Ordering::Relaxed) {
-                        // Output silence when stopped/cancelled
                         for frame in data.iter_mut() {
                             *frame = 0.0;
                         }
@@ -472,7 +529,6 @@ impl Track {
                     return;
                 }
 
-                // Wait for playback to complete or be cancelled
                 let duration = total_samples as f64 / sample_rate as f64;
                 let start = std::time::Instant::now();
                 while start.elapsed().as_secs_f64() < duration {
@@ -536,6 +592,19 @@ fn downsample_bipolar(samples: &[f64]) -> Vec<(f64, f64)> {
 
     samples
         .chunks(chunk_size)
+        .map(|chunk| {
+            let min = chunk.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = chunk.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            (min, max)
+        })
+        .collect()
+}
+
+/// Fixed chunk_size version — each point always represents the same number of samples.
+/// Only processes complete chunks; leftover samples are ignored (caller should track offset).
+fn downsample_bipolar_fixed(samples: &[f64], chunk_size: usize) -> Vec<(f64, f64)> {
+    samples
+        .chunks_exact(chunk_size)
         .map(|chunk| {
             let min = chunk.iter().cloned().fold(f64::INFINITY, f64::min);
             let max = chunk.iter().cloned().fold(f64::NEG_INFINITY, f64::max);

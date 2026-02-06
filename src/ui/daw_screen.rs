@@ -4,7 +4,7 @@ use ratatui::{
     style::{Color, Style},
     widgets::{
         canvas::{Canvas, Line},
-        Block, Borders, Gauge, List, ListItem, Paragraph,
+        Block, Borders, Gauge, Paragraph,
     },
     Frame,
 };
@@ -20,14 +20,13 @@ mod layout_config {
     pub const DEFAULT_BORDER: Color = Color::White;
     pub const ARMED_BORDER: Color = Color::Red;
     pub const RECORDING_BORDER: Color = Color::Magenta;
-    pub const EMPTY_LANE_MESSAGE: &str = "'p': Solo | 'a': Arm | 'r': Record | 'f': Record Armed";
     pub const LANE_STATUS_EMPTY: &str = "Empty";
     pub const LANE_STATUS_ARMED: &str = "ARMED";
     pub const LANE_STATUS_MUTED: &str = "MUTED";
     pub const LANE_STATUS_ACTIVE: &str = "ACTIVE";
     pub const LANE_STATUS_RECORDING: &str = "🔴 REC";
     pub const GLOBAL_INSTRUCTIONS: &str =
-        "n: Add new track | d: Delete track | Space: Play all tracks";
+        "n: Add new track | d: Delete track | Space: Play all tracks | Left/Right: Move playhead";
 
     pub fn get_lane_constraints(track_count: usize) -> Vec<Constraint> {
         let denominator = track_count.max(3) as u32;
@@ -70,11 +69,14 @@ impl ScreenTrait for DawScreen {
             .split(area);
 
         let is_playing = app.session.transport.is_playing();
+        let playhead_secs = app.session.transport.playhead_seconds(app.session.sample_rate);
+        let minutes = (playhead_secs / 60.0) as u32;
+        let secs = playhead_secs % 60.0;
 
         let label = if is_playing {
-            "▶ Playing".to_string()
+            format!("▶ Playing  {:02}:{:05.2}", minutes, secs)
         } else {
-            "⏹ Stopped".to_string()
+            format!("⏹ Stopped  {:02}:{:05.2}", minutes, secs)
         };
 
         let gauge = Gauge::default()
@@ -109,7 +111,7 @@ impl ScreenTrait for DawScreen {
             let is_selected = app.selected == i;
 
             let border_color =
-                if app.session.transport.is_playing() && !track.muted && track.wav_data.is_some() {
+                if app.session.transport.is_playing() && !track.muted && !track.clips.is_empty() {
                     layout_config::SELECTED_BORDER // Show yellow when actively playing
                 } else if track.state == crate::track::TrackState::Recording {
                     layout_config::RECORDING_BORDER
@@ -139,43 +141,112 @@ impl ScreenTrait for DawScreen {
                 .border_style(Style::default().fg(border_color))
                 .title(title);
 
-            if let Some(waveform) = track.waveform() {
-                let canvas = Canvas::default()
-                    .block(block)
-                    .x_bounds([0.0, waveform.len() as f64])
-                    .y_bounds([-1.0, 1.0])
-                    .paint(|ctx| {
+            // Every track shows a timeline canvas with playhead
+            let sample_rate = app.session.sample_rate;
+            let playhead_pos = app.session.transport.playhead_position;
+            let is_recording = track.state == crate::track::TrackState::Recording;
+            let rec_start_pos = track.recording_start_position;
+
+            let waveform = track.waveform();
+            let waveform_len = waveform.as_ref().map(|w| w.len()).unwrap_or(0);
+
+            // Calculate furthest_end based on track state
+            let furthest_end = if is_recording {
+                // Each waveform point = exactly RECORDING_WAVEFORM_CHUNK_SIZE samples
+                rec_start_pos
+                    + waveform_len as u64
+                        * crate::track::RECORDING_WAVEFORM_CHUNK_SIZE as u64
+            } else {
+                track.clips.iter().map(|clip| {
+                    clip.starts_at + clip.wav_data.to_f64_samples().len() as u64
+                }).max().unwrap_or(0)
+            };
+
+            // Fixed 20-second timeline
+            let timeline_samples = sample_rate as u64 * 20;
+
+            let canvas = Canvas::default()
+                .block(block)
+                .x_bounds([0.0, timeline_samples as f64])
+                .y_bounds([-1.0, 1.0])
+                .paint(move |ctx| {
+                    // Center line (timeline axis)
+                    ctx.draw(&Line {
+                        x1: 0.0,
+                        y1: 0.0,
+                        x2: timeline_samples as f64,
+                        y2: 0.0,
+                        color: Color::DarkGray,
+                    });
+
+                    // Draw second markers along the timeline
+                    let total_seconds = (timeline_samples / sample_rate as u64) as usize;
+                    for s in 0..=total_seconds {
+                        let x = s as f64 * sample_rate as f64;
+                        let tick_height = if s % 5 == 0 { 0.15 } else { 0.08 };
                         ctx.draw(&Line {
-                            x1: 0.0,
-                            y1: 0.0,
-                            x2: waveform.len() as f64,
-                            y2: 0.0,
+                            x1: x,
+                            y1: -tick_height,
+                            x2: x,
+                            y2: tick_height,
                             color: Color::DarkGray,
                         });
+                    }
 
-                        for (i, &(min, max)) in waveform.iter().enumerate() {
-                            let x = i as f64;
-                            // Amplify the waveform for better visibility
-                            const SENSITIVITY: f64 = 8.0;
-                            let y_min = (min * SENSITIVITY).clamp(-1.0, 1.0);
-                            let y_max = (max * SENSITIVITY).clamp(-1.0, 1.0);
+                    // Draw waveform if present
+                    if let Some(ref waveform) = waveform {
+                        if is_recording {
+                            // Recording: fixed chunk size → each point has a stable position
+                            let chunk = crate::track::RECORDING_WAVEFORM_CHUNK_SIZE as f64;
+                            for (j, &(min, max)) in waveform.iter().enumerate() {
+                                let x = rec_start_pos as f64 + j as f64 * chunk;
+                                const SENSITIVITY: f64 = 8.0;
+                                let y_min = (min * SENSITIVITY).clamp(-1.0, 1.0);
+                                let y_max = (max * SENSITIVITY).clamp(-1.0, 1.0);
 
-                            // Draw vertical line from min to max
-                            ctx.draw(&Line {
-                                x1: x,
-                                y1: y_min,
-                                x2: x,
-                                y2: y_max,
-                                color: layout_config::DEFAULT_BORDER,
-                            });
+                                ctx.draw(&Line {
+                                    x1: x,
+                                    y1: y_min,
+                                    x2: x,
+                                    y2: y_max,
+                                    color: layout_config::DEFAULT_BORDER,
+                                });
+                            }
+                        } else {
+                            // Clip-based: waveform spans 0..furthest_end
+                            let samples_per_point = if waveform_len > 0 {
+                                furthest_end as f64 / waveform_len as f64
+                            } else {
+                                1.0
+                            };
+
+                            for (j, &(min, max)) in waveform.iter().enumerate() {
+                                let x = j as f64 * samples_per_point;
+                                const SENSITIVITY: f64 = 8.0;
+                                let y_min = (min * SENSITIVITY).clamp(-1.0, 1.0);
+                                let y_max = (max * SENSITIVITY).clamp(-1.0, 1.0);
+
+                                ctx.draw(&Line {
+                                    x1: x,
+                                    y1: y_min,
+                                    x2: x,
+                                    y2: y_max,
+                                    color: layout_config::DEFAULT_BORDER,
+                                });
+                            }
                         }
+                    }
+
+                    // Draw playhead line (always visible, cyan)
+                    ctx.draw(&Line {
+                        x1: playhead_pos as f64,
+                        y1: -1.0,
+                        x2: playhead_pos as f64,
+                        y2: 1.0,
+                        color: Color::Cyan,
                     });
-                f.render_widget(canvas, *chunk);
-            } else {
-                let list =
-                    List::new(vec![ListItem::new(layout_config::EMPTY_LANE_MESSAGE)]).block(block);
-                f.render_widget(list, *chunk);
-            }
+                });
+            f.render_widget(canvas, *chunk);
         }
     }
 
@@ -202,6 +273,22 @@ impl ScreenTrait for DawScreen {
                     app.selected += 1;
                 }
             }
+            KeyCode::Left => {
+                if !app.session.transport.is_playing() {
+                    let delta = -(app.session.sample_rate as i64 / 2); // -0.5 seconds
+                    app.session.transport.move_playhead(delta);
+                    let secs = app.session.transport.playhead_seconds(app.session.sample_rate);
+                    app.status = format!("Playhead: {:.1}s", secs);
+                }
+            }
+            KeyCode::Right => {
+                if !app.session.transport.is_playing() {
+                    let delta = app.session.sample_rate as i64 / 2; // +0.5 seconds
+                    app.session.transport.move_playhead(delta);
+                    let secs = app.session.transport.playhead_seconds(app.session.sample_rate);
+                    app.status = format!("Playhead: {:.1}s", secs);
+                }
+            }
 
             // Global transport control
             KeyCode::Char(' ') | KeyCode::Enter => match app.session.toggle_playback() {
@@ -215,24 +302,6 @@ impl ScreenTrait for DawScreen {
                 }
                 Err(e) => app.status = format!("Playback error: {}", e),
             },
-
-            // Individual track playback (solo) - toggle playback
-            KeyCode::Char('p') => {
-                if app.session.transport.is_playing() {
-                    app.status = "Stop global playback first (press space)".to_string();
-                } else {
-                    let track = &mut app.session.tracks[app.selected];
-                    if track.is_playing_track() {
-                        track.stop_playback();
-                        app.status = format!("Track {} stopped", app.selected + 1);
-                    } else {
-                        match track.play() {
-                            Ok(_) => app.status = format!("Playing Track {}", app.selected + 1),
-                            Err(e) => app.status = format!("Error playing: {}", e),
-                        }
-                    }
-                }
-            }
 
             KeyCode::Char('a') => {
                 let track = &mut app.session.tracks[app.selected];
@@ -250,21 +319,39 @@ impl ScreenTrait for DawScreen {
             }
 
             KeyCode::Char('r') => {
-                let track = &mut app.session.tracks[app.selected];
-                if track.state == crate::track::TrackState::Recording {
-                    match track.stop_recording() {
-                        Ok(_) => {
-                            app.status = format!("Track {} stopped recording", app.selected + 1)
-                        }
-                        Err(e) => app.status = format!("Error stopping recording: {}", e),
-                    }
-                } else if track.armed {
-                    match track.start_recording() {
-                        Ok(_) => app.status = format!("Track {} recording!", app.selected + 1),
-                        Err(e) => app.status = format!("Error starting recording: {}", e),
-                    }
+                // Check if any track is currently recording
+                let any_recording = app.session.tracks.iter().any(|t| {
+                    t.state == crate::track::TrackState::Recording
+                });
+
+                if any_recording {
+                    // Stop all recording and overdub playback
+                    app.session.stop_all_recording();
+                    app.status = "Recording stopped".to_string();
                 } else {
-                    app.status = "Track must be armed to record (press 'a')".to_string();
+                    // Start recording on all armed tracks
+                    let playhead_pos = app.session.transport.playhead_position;
+                    let mut recording_count = 0;
+                    let mut errors = Vec::new();
+
+                    for (i, track) in app.session.tracks.iter_mut().enumerate() {
+                        if track.armed {
+                            match track.start_recording(playhead_pos) {
+                                Ok(_) => recording_count += 1,
+                                Err(e) => errors.push(format!("Track {}: {}", i + 1, e)),
+                            }
+                        }
+                    }
+
+                    if recording_count > 0 {
+                        // Start playback on non-recording tracks (overdub)
+                        app.session.start_overdub_playback();
+                        app.status = format!("Recording {} armed track(s)", recording_count);
+                    } else if !errors.is_empty() {
+                        app.status = format!("Errors: {}", errors.join(", "));
+                    } else {
+                        app.status = "No armed tracks to record (press 'a')".to_string();
+                    }
                 }
             }
 
@@ -291,7 +378,7 @@ impl ScreenTrait for DawScreen {
             // File operations
             KeyCode::Char('c') => {
                 app.session.tracks[app.selected].file_path.clear();
-                app.session.tracks[app.selected].wav_data = None;
+                app.session.tracks[app.selected].clips.clear();
                 app.status = format!("Track {} cleared", app.selected + 1);
             }
 
@@ -328,29 +415,6 @@ impl ScreenTrait for DawScreen {
 
             KeyCode::Char('x') => {
                 app.status = "Export mixed audio".to_string();
-            }
-
-            KeyCode::Char('f') => {
-                // Record all armed tracks simultaneously
-                let mut recording_count = 0;
-                let mut errors = Vec::new();
-
-                for (i, track) in app.session.tracks.iter_mut().enumerate() {
-                    if track.armed {
-                        match track.start_recording() {
-                            Ok(_) => recording_count += 1,
-                            Err(e) => errors.push(format!("Track {}: {}", i + 1, e)),
-                        }
-                    }
-                }
-
-                if recording_count > 0 {
-                    app.status = format!("Recording {} armed track(s)", recording_count);
-                } else if !errors.is_empty() {
-                    app.status = format!("Errors: {}", errors.join(", "));
-                } else {
-                    app.status = "No armed tracks to record".to_string();
-                }
             }
 
             KeyCode::Char('n') => {

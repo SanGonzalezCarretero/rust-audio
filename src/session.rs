@@ -9,6 +9,8 @@ pub enum TransportState {
 
 pub struct Transport {
     pub state: TransportState,
+    pub playhead_position: u64,
+    playback_origin: u64,
     playback_start_time: Option<Instant>,
 }
 
@@ -16,6 +18,8 @@ impl Default for Transport {
     fn default() -> Self {
         Transport {
             state: TransportState::Stopped,
+            playhead_position: 0,
+            playback_origin: 0,
             playback_start_time: None,
         }
     }
@@ -24,6 +28,7 @@ impl Default for Transport {
 impl Transport {
     pub fn play(&mut self) {
         self.state = TransportState::Playing;
+        self.playback_origin = self.playhead_position;
         self.playback_start_time = Some(Instant::now());
     }
 
@@ -34,6 +39,28 @@ impl Transport {
 
     pub fn is_playing(&self) -> bool {
         self.state == TransportState::Playing
+    }
+
+    pub fn move_playhead(&mut self, delta_samples: i64) {
+        if delta_samples < 0 {
+            self.playhead_position = self
+                .playhead_position
+                .saturating_sub(delta_samples.unsigned_abs());
+        } else {
+            self.playhead_position = self.playhead_position.saturating_add(delta_samples as u64);
+        }
+    }
+
+    pub fn playhead_seconds(&self, sample_rate: u32) -> f64 {
+        self.playhead_position as f64 / sample_rate as f64
+    }
+
+    pub fn advance_playhead(&mut self, sample_rate: u32) {
+        if let Some(start_time) = self.playback_start_time {
+            let elapsed_secs = start_time.elapsed().as_secs_f64();
+            let elapsed_samples = (elapsed_secs * sample_rate as f64) as u64;
+            self.playhead_position = self.playback_origin + elapsed_samples;
+        }
     }
 }
 
@@ -84,13 +111,24 @@ impl Session {
     }
 
     pub fn start_playback(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.transport.play();
+        let playhead_pos = self.transport.playhead_position;
+        let sample_rate = self.sample_rate;
 
-        // Play all non-muted tracks
+        // Start playback on all eligible tracks (don't let one failure stop others)
+        let mut any_started = false;
         for track in &mut self.tracks {
-            if !track.muted && track.wav_data.is_some() {
-                track.play()?;
+            if !track.muted
+                && !track.clips.is_empty()
+                && track.play_from(playhead_pos, sample_rate).is_ok()
+                && track.is_playing_track()
+            {
+                any_started = true;
             }
+        }
+
+        // Only set transport to Playing if at least one track started
+        if any_started {
+            self.transport.play();
         }
 
         Ok(())
@@ -105,15 +143,48 @@ impl Session {
         Ok(())
     }
 
+    /// Start playback on non-recording tracks so the user hears them while recording (overdub).
+    pub fn start_overdub_playback(&mut self) {
+        let playhead_pos = self.transport.playhead_position;
+        let sample_rate = self.sample_rate;
+
+        let mut any_started = false;
+        for track in &mut self.tracks {
+            if track.state != crate::track::TrackState::Recording
+                && !track.muted
+                && !track.clips.is_empty()
+                && track.play_from(playhead_pos, sample_rate).is_ok()
+                && track.is_playing_track()
+            {
+                any_started = true;
+            }
+        }
+
+        if any_started {
+            self.transport.play();
+        }
+    }
+
+    /// Stop recording on all tracks that are recording, and stop playback.
+    pub fn stop_all_recording(&mut self) {
+        for track in &mut self.tracks {
+            if track.state == crate::track::TrackState::Recording {
+                let _ = track.stop_recording();
+            }
+            track.stop_playback();
+        }
+        self.transport.stop();
+    }
+
     pub fn check_playback_status(&mut self) {
-        // Check if all tracks have finished playing
         if self.transport.is_playing() {
+            // Advance playhead based on elapsed time
+            self.transport.advance_playhead(self.sample_rate);
+
             let all_finished = self.tracks.iter().all(|track| {
-                // If track has no audio data or is muted, consider it "finished"
-                if track.wav_data.is_none() || track.muted {
+                if track.clips.is_empty() || track.muted {
                     true
                 } else {
-                    // Check if playback is finished
                     track.is_playback_finished()
                 }
             });
