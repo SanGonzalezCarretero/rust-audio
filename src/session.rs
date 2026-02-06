@@ -2,7 +2,8 @@ use crate::audio_engine::AudioEngine;
 use crate::track::{Track, LATENCY_MS};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{BufferSize, Stream};
-use std::sync::{Arc, Mutex, RwLock};
+use ringbuf::{traits::Producer, HeapProd};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,18 +175,18 @@ impl Session {
             }
         }
 
-        // Collect Arc handles from all recording tracks
-        let mut rec_buffers: Vec<Arc<RwLock<Vec<f32>>>> = Vec::new();
+        // Take ring buffer producers and monitor handles from all recording tracks
+        let mut rec_producers: Vec<HeapProd<f32>> = Vec::new();
         let mut mon_buffers: Vec<Arc<Mutex<Vec<f32>>>> = Vec::new();
 
-        for track in &self.tracks {
-            if let Some(buf) = track.recording_buffer_handle() {
-                rec_buffers.push(buf);
+        for track in &mut self.tracks {
+            if let Some(prod) = track.take_recording_producer() {
+                rec_producers.push(prod);
                 mon_buffers.push(track.monitor_buffer_handle());
             }
         }
 
-        // Build ONE input stream that fans data to ALL recording tracks
+        // Build ONE input stream that fans data to ALL recording tracks (lock-free)
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             for mon in &mon_buffers {
                 if let Ok(mut buffer) = mon.try_lock() {
@@ -193,10 +194,8 @@ impl Session {
                     buffer.extend_from_slice(data);
                 }
             }
-            for rec in &rec_buffers {
-                if let Ok(mut samples) = rec.write() {
-                    samples.extend_from_slice(data);
-                }
+            for prod in &mut rec_producers {
+                prod.push_slice(data);
             }
         };
 
