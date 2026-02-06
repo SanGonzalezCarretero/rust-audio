@@ -4,7 +4,7 @@ use ratatui::{
     style::{Color, Style},
     widgets::{
         canvas::{Canvas, Line},
-        Block, Borders, Gauge, List, ListItem,
+        Block, Borders, Gauge, List, ListItem, Paragraph,
     },
     Frame,
 };
@@ -16,25 +16,24 @@ mod layout_config {
     use ratatui::layout::Constraint;
     use ratatui::style::Color;
 
-    pub const LANE_PERCENTAGES: [u16; 3] = [33, 33, 34];
     pub const SELECTED_BORDER: Color = Color::Yellow;
     pub const DEFAULT_BORDER: Color = Color::White;
     pub const ARMED_BORDER: Color = Color::Red;
     pub const RECORDING_BORDER: Color = Color::Magenta;
-    pub const EMPTY_LANE_MESSAGE: &str =
-        "Space: Play All | 'p': Solo | 'a': Arm | 'r': Record | 'f': Record Armed";
+    pub const EMPTY_LANE_MESSAGE: &str = "'p': Solo | 'a': Arm | 'r': Record | 'f': Record Armed";
     pub const LANE_STATUS_EMPTY: &str = "Empty";
     pub const LANE_STATUS_ARMED: &str = "ARMED";
     pub const LANE_STATUS_MUTED: &str = "MUTED";
     pub const LANE_STATUS_ACTIVE: &str = "ACTIVE";
     pub const LANE_STATUS_RECORDING: &str = "🔴 REC";
+    pub const GLOBAL_INSTRUCTIONS: &str =
+        "n: Add new track | d: Delete track | Space: Play all tracks";
 
-    pub fn get_lane_constraints() -> [Constraint; 3] {
-        [
-            Constraint::Percentage(LANE_PERCENTAGES[0]),
-            Constraint::Percentage(LANE_PERCENTAGES[1]),
-            Constraint::Percentage(LANE_PERCENTAGES[2]),
-        ]
+    pub fn get_lane_constraints(track_count: usize) -> Vec<Constraint> {
+        let denominator = track_count.max(3) as u32;
+        (0..track_count)
+            .map(|_| Constraint::Ratio(1, denominator))
+            .collect()
     }
 
     pub fn format_lane_title(
@@ -65,6 +64,7 @@ impl ScreenTrait for DawScreen {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3), // Progress bar
+                Constraint::Length(1), // Instructions bar
                 Constraint::Min(10),   // Tracks
             ])
             .split(area);
@@ -88,12 +88,23 @@ impl ScreenTrait for DawScreen {
 
         f.render_widget(gauge, main_chunks[0]);
 
+        // Render instructions bar
+        let instructions = Paragraph::new(layout_config::GLOBAL_INSTRUCTIONS)
+            .block(Block::default().borders(Borders::NONE))
+            .style(Style::default().fg(Color::Gray));
+        f.render_widget(instructions, main_chunks[1]);
+
+        let track_count = app.session.tracks.len();
+        let constraints = layout_config::get_lane_constraints(track_count);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(layout_config::get_lane_constraints())
-            .split(main_chunks[1]);
+            .constraints(constraints)
+            .split(main_chunks[2]);
 
         for (i, chunk) in chunks.iter().enumerate() {
+            if i >= track_count {
+                break;
+            }
             let track = &app.session.tracks[i];
             let is_selected = app.selected == i;
 
@@ -173,6 +184,13 @@ impl ScreenTrait for DawScreen {
         app: &mut App,
         key: KeyCode,
     ) -> Result<bool, Box<dyn std::error::Error>> {
+        let track_count = app.session.tracks.len();
+        let max_selected = track_count.saturating_sub(1);
+
+        if track_count > 0 && app.selected >= track_count {
+            app.selected = max_selected;
+        }
+
         match key {
             KeyCode::Up => {
                 if app.selected > 0 {
@@ -180,7 +198,7 @@ impl ScreenTrait for DawScreen {
                 }
             }
             KeyCode::Down => {
-                if app.selected < 2 {
+                if app.selected < max_selected {
                     app.selected += 1;
                 }
             }
@@ -332,6 +350,38 @@ impl ScreenTrait for DawScreen {
                     app.status = format!("Errors: {}", errors.join(", "));
                 } else {
                     app.status = "No armed tracks to record".to_string();
+                }
+            }
+
+            KeyCode::Char('n') => {
+                // Add new track
+                let track_num = track_count + 1;
+                match app.session.add_track(format!("Track {}", track_num)) {
+                    Ok(_) => {
+                        app.status = format!("Track {} added", track_num);
+                        // Select the newly added track
+                        app.selected = track_count;
+                    }
+                    Err(e) => app.status = format!("Cannot add track: {}", e),
+                }
+            }
+
+            KeyCode::Char('d') => {
+                // Delete selected track
+                if track_count <= 1 {
+                    app.status = "Cannot remove the last track".to_string();
+                } else {
+                    let selected_index = app.selected;
+                    match app.session.remove_track(selected_index) {
+                        Ok(_) => {
+                            app.status = format!("Track {} removed", selected_index + 1);
+                            // Adjust selected index if needed
+                            if app.selected >= app.session.tracks.len() {
+                                app.selected = app.session.tracks.len().saturating_sub(1);
+                            }
+                        }
+                        Err(e) => app.status = format!("Cannot remove track: {}", e),
+                    }
                 }
             }
 

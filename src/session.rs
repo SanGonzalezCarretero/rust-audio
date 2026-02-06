@@ -54,8 +54,13 @@ impl Session {
         }
     }
 
-    pub fn add_track(&mut self, name: String) {
+    pub fn add_track(&mut self, name: String) -> Result<(), Box<dyn std::error::Error>> {
+        const MAX_TRACKS: usize = 3;
+        if self.tracks.len() >= MAX_TRACKS {
+            return Err(format!("Maximum of {} tracks allowed", MAX_TRACKS).into());
+        }
         self.tracks.push(Track::new(name));
+        Ok(())
     }
 
     pub fn get_track_mut(&mut self, index: usize) -> Option<&mut Track> {
@@ -117,5 +122,24 @@ impl Session {
                 self.transport.stop();
             }
         }
+    }
+
+    pub fn remove_track(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
+        const MIN_TRACKS: usize = 1;
+        if self.tracks.len() <= MIN_TRACKS {
+            return Err("Cannot remove the last track".into());
+        }
+
+        if index >= self.tracks.len() {
+            return Err("Track index out of bounds".into());
+        }
+
+        // Cleanup the track before removal
+        self.tracks[index].cleanup();
+
+        // Remove the track
+        self.tracks.remove(index);
+
+        Ok(())
     }
 }
