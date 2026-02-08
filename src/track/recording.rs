@@ -1,4 +1,4 @@
-use super::{downsample_bipolar, Clip, Track, TrackState, RECORDING_WAVEFORM_CHUNK_SIZE};
+use super::{downsample_bipolar, Clip, Track, TrackState, RECORDING_WAVEFORM_CHUNK_SIZE, WAVEFORM_MAX_POINTS};
 use crate::wav::WavFile;
 use ringbuf::{
     traits::{Consumer, Split},
@@ -34,16 +34,16 @@ impl Track {
         self.state = TrackState::Recording;
 
         // Reset stop flag and prepare for thread spawn
-        self.thread_handles.reset_waveform_stop();
+        self.waveform_thread.reset_waveform_stop();
 
         let waveform_clone = Arc::clone(&self.waveform);
-        let should_stop = self.thread_handles.waveform_stop();
+        let should_stop = self.waveform_thread.waveform_stop();
 
         let handle = std::thread::spawn(move || {
             Self::waveform_thread(consumer, waveform_clone, should_stop)
         });
 
-        self.thread_handles.waveform = Some(handle);
+        self.waveform_thread.waveform = Some(handle);
     }
 
     /// Waveform background thread: drains ring buffer consumer into a local accumulator,
@@ -122,10 +122,10 @@ impl Track {
         }
 
         // Signal waveform thread to stop
-        self.thread_handles.stop_waveform();
+        self.waveform_thread.stop_waveform();
 
         // Join the waveform thread to receive all accumulated samples
-        let samples = if let Some(handle) = self.thread_handles.waveform.take() {
+        let samples = if let Some(handle) = self.waveform_thread.waveform.take() {
             handle.join().unwrap_or_default()
         } else {
             Vec::new()
@@ -169,32 +169,12 @@ impl Track {
             return None;
         }
 
-        // Composite all clips into a single sample buffer
-        let end_sample = self
-            .clips
-            .iter()
-            .map(|clip| clip.starts_at + clip.wav_data.to_f64_samples().len() as u64)
-            .max()
-            .unwrap_or(0);
-
-        if end_sample == 0 {
+        let (mixed, _) = self.mix_clips(0);
+        if mixed.is_empty() {
             return None;
         }
 
-        let mut mixed = vec![0.0f64; end_sample as usize];
-
-        for clip in &self.clips {
-            let clip_samples = clip.wav_data.to_f64_samples();
-            for (j, &sample) in clip_samples.iter().enumerate() {
-                let pos = clip.starts_at as usize + j;
-                if pos < mixed.len() {
-                    mixed[pos] += sample;
-                }
-            }
-        }
-
-        const MAX_POINTS: usize = 500;
-        let chunk_size = (mixed.len() / MAX_POINTS).max(1);
+        let chunk_size = (mixed.len() / WAVEFORM_MAX_POINTS).max(1);
         Some(downsample_bipolar(&mixed, chunk_size, false))
     }
 }

@@ -22,6 +22,7 @@ pub const LATENCY_MS: f32 = 10.0;
 // Fixed chunk size for recording waveform: each peak point = this many raw samples.
 // ~20ms at 48kHz → stable left-to-right waveform growth during recording.
 pub const RECORDING_WAVEFORM_CHUNK_SIZE: usize = 960;
+const WAVEFORM_MAX_POINTS: usize = 500;
 
 pub struct Clip {
     pub wav_data: WavFile,
@@ -35,12 +36,12 @@ pub enum TrackState {
     Recording,
 }
 
-pub struct ThreadHandles {
+pub struct WaveformThread {
     pub waveform: Option<std::thread::JoinHandle<Vec<f32>>>,
     waveform_stop: Arc<AtomicBool>,
 }
 
-impl Default for ThreadHandles {
+impl Default for WaveformThread {
     fn default() -> Self {
         Self {
             waveform: None,
@@ -49,7 +50,7 @@ impl Default for ThreadHandles {
     }
 }
 
-impl ThreadHandles {
+impl WaveformThread {
     pub fn new() -> Self {
         Self::default()
     }
@@ -69,7 +70,6 @@ impl ThreadHandles {
 
 pub struct Track {
     pub name: String,
-    pub armed: bool,
     pub monitoring: bool,
     pub state: TrackState,
 
@@ -81,7 +81,6 @@ pub struct Track {
 
     // Playback data (recorded or loaded)
     pub clips: Vec<Clip>,
-    pub file_path: String,
     pub recording_start_position: u64,
 
     // Playback state
@@ -100,7 +99,7 @@ pub struct Track {
     recording_sample_rate: Option<u32>,
 
     // Thread handles for background processing
-    thread_handles: ThreadHandles,
+    waveform_thread: WaveformThread,
 
     // Waveform result (written by background thread, read by UI)
     waveform: Arc<RwLock<Vec<(f64, f64)>>>,
@@ -110,13 +109,11 @@ impl Default for Track {
     fn default() -> Self {
         Track {
             name: "Untitled".to_string(),
-            armed: false,
             monitoring: false,
             state: TrackState::Idle,
             fx_chain: vec![],
             monitor_buffer: Arc::new(Mutex::new(vec![0.0; MONITOR_BUFFER_SAMPLES])),
             clips: Vec::new(),
-            file_path: String::new(),
             recording_start_position: 0,
             volume: 1.0,
             muted: false,
@@ -127,7 +124,7 @@ impl Default for Track {
             recording_producer: None,
             recording_channels: None,
             recording_sample_rate: None,
-            thread_handles: ThreadHandles::new(),
+            waveform_thread: WaveformThread::new(),
             waveform: Arc::new(RwLock::new(Vec::new())),
         }
     }
@@ -141,17 +138,52 @@ impl Track {
         }
     }
 
+    pub fn is_armed(&self) -> bool {
+        matches!(self.state, TrackState::Armed | TrackState::Recording)
+    }
+
     pub fn arm(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.armed = true;
         self.state = TrackState::Armed;
         self.start_monitoring()?;
         Ok(())
     }
 
     pub fn disarm(&mut self) {
-        self.armed = false;
         self.state = TrackState::Idle;
         self.stop_monitoring();
+    }
+
+    /// Sample position of the end of the furthest clip.
+    pub fn clips_end(&self) -> u64 {
+        self.clips
+            .iter()
+            .map(|clip| clip.starts_at + clip.wav_data.to_f64_samples().len() as u64)
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Mix all clips into a single sample buffer starting from `from_sample`.
+    pub fn mix_clips(&self, from_sample: u64) -> (Vec<f64>, u64) {
+        let end_sample = self.clips_end();
+        if from_sample >= end_sample {
+            return (Vec::new(), end_sample);
+        }
+
+        let buffer_len = (end_sample - from_sample) as usize;
+        let mut mixed = vec![0.0f64; buffer_len];
+
+        for clip in &self.clips {
+            let clip_samples = clip.wav_data.to_f64_samples();
+            for (j, &sample) in clip_samples.iter().enumerate() {
+                let absolute_pos = clip.starts_at + j as u64;
+                if absolute_pos >= from_sample && absolute_pos < end_sample {
+                    let buf_idx = (absolute_pos - from_sample) as usize;
+                    mixed[buf_idx] += sample;
+                }
+            }
+        }
+
+        (mixed, end_sample)
     }
 
     pub fn cleanup(&mut self) {
@@ -161,7 +193,7 @@ impl Track {
             let _ = self.stop_recording();
         }
 
-        if self.armed {
+        if self.is_armed() {
             self.disarm();
         }
 
@@ -188,17 +220,11 @@ fn downsample_bipolar(samples: &[f64], chunk_size: usize, exact_chunks: bool) ->
         .collect()
 }
 
-/// Fixed chunk_size version — each point always represents the same number of samples.
-/// Only processes complete chunks; leftover samples are ignored (caller should track offset).
-fn downsample_bipolar_fixed(samples: &[f64], chunk_size: usize) -> Vec<(f64, f64)> {
-    samples
-        .chunks_exact(chunk_size)
-        .map(|chunk| {
-            let min = chunk.iter().cloned().fold(f64::INFINITY, f64::min);
-            let max = chunk.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            (min, max)
-        })
-        .collect()
+pub fn update_monitor_buffer(buffer: &Mutex<Vec<f32>>, data: &[f32]) {
+    if let Ok(mut buf) = buffer.try_lock() {
+        buf.clear();
+        buf.extend_from_slice(data);
+    }
 }
 
 fn err_fn(err: cpal::StreamError) {

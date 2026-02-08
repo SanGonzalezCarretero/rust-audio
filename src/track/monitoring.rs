@@ -1,6 +1,8 @@
-use super::{err_fn, Track, AUDIO_BUFFER_SIZE, PREFILL_BUFFER_COUNT, RING_BUFFER_MULTIPLIER};
+use super::{
+    err_fn, update_monitor_buffer, Track, AUDIO_BUFFER_SIZE, PREFILL_BUFFER_COUNT,
+    RING_BUFFER_MULTIPLIER,
+};
 use crate::audio_engine::AudioEngine;
-use crate::device::{AudioDevice, DeviceProvider};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::BufferSize;
 use ringbuf::{
@@ -11,13 +13,13 @@ use std::sync::Arc;
 
 impl Track {
     pub fn start_monitoring(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.armed {
+        if !self.is_armed() {
             return Err("Track must be armed to monitor".into());
         }
 
         let input_device = AudioEngine::get_input_device()?;
 
-        let output_device = AudioDevice::OUTPUT.default()?;
+        let output_device = AudioEngine::get_output_device()?;
 
         let mut config = input_device.config.clone();
         config.buffer_size = BufferSize::Fixed(AUDIO_BUFFER_SIZE);
@@ -35,11 +37,7 @@ impl Track {
         let monitor_buffer = Arc::clone(&self.monitor_buffer);
 
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            if let Ok(mut buffer) = monitor_buffer.try_lock() {
-                buffer.truncate(0);
-                buffer.extend_from_slice(data);
-            }
-
+            update_monitor_buffer(&monitor_buffer, data);
             let _ = producer.push_slice(data);
         };
 

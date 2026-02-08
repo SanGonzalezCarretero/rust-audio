@@ -1,6 +1,5 @@
 use super::Track;
 use crate::audio_engine::AudioEngine;
-use crate::device::{AudioDevice, DeviceProvider};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use std::sync::{atomic::Ordering, Arc};
 
@@ -16,41 +15,15 @@ impl Track {
         let sample_rate = self.clips[0].wav_data.header.sample_rate;
         let channels = self.clips[0].wav_data.header.num_channels;
 
-        // Find the end of the furthest clip
-        let end_sample = self
-            .clips
-            .iter()
-            .map(|clip| clip.starts_at + clip.wav_data.to_f64_samples().len() as u64)
-            .max()
-            .unwrap_or(0);
-
-        if playhead_position >= end_sample {
+        let (mixed, _) = self.mix_clips(playhead_position);
+        if mixed.is_empty() {
             return Ok(());
-        }
-
-        // Build mixed buffer from playhead_position to end
-        let buffer_len = (end_sample - playhead_position) as usize;
-        let mut mixed = vec![0.0f64; buffer_len];
-
-        for clip in &self.clips {
-            let clip_samples = clip.wav_data.to_f64_samples();
-            for (j, &sample) in clip_samples.iter().enumerate() {
-                let absolute_pos = clip.starts_at + j as u64;
-                if absolute_pos >= playhead_position && absolute_pos < end_sample {
-                    let buf_idx = (absolute_pos - playhead_position) as usize;
-                    mixed[buf_idx] += sample;
-                }
-            }
         }
 
         let volume = self.volume;
         let samples: Vec<f64> = mixed.iter().map(|&s| s * volume).collect();
 
-        let output_device = {
-            let engine = AudioEngine::global();
-            let engine = engine.lock().unwrap();
-            engine.selected_output().map(|s| s.to_string())
-        };
+        let output_device = AudioEngine::get_output_device()?;
 
         // Reset flag
         self.is_playing.store(true, Ordering::Relaxed);
@@ -61,21 +34,7 @@ impl Track {
         let handle = std::thread::spawn(move || {
             use cpal::{SampleRate, StreamConfig};
 
-            let device = if let Some(name) = output_device {
-                if let Ok(audio_device) = AudioDevice::OUTPUT.by_name(&name) {
-                    audio_device.device
-                } else if let Ok(audio_device) = AudioDevice::OUTPUT.default() {
-                    audio_device.device
-                } else {
-                    is_playing_flag.store(false, Ordering::Relaxed);
-                    return;
-                }
-            } else if let Ok(audio_device) = AudioDevice::OUTPUT.default() {
-                audio_device.device
-            } else {
-                is_playing_flag.store(false, Ordering::Relaxed);
-                return;
-            };
+            let device = output_device.device;
 
             let config = StreamConfig {
                 channels,
@@ -145,10 +104,6 @@ impl Track {
             // The is_playing flag will stop audio production
             drop(handle);
         }
-    }
-
-    pub fn is_playback_finished(&self) -> bool {
-        !self.is_playing.load(Ordering::Relaxed)
     }
 
     pub fn is_playing_track(&self) -> bool {
