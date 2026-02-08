@@ -119,14 +119,13 @@ impl Session {
 
     pub fn start_playback(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let playhead_pos = self.transport.playhead_position;
-        let sample_rate = self.sample_rate;
 
         // Start playback on all eligible tracks (don't let one failure stop others)
         let mut any_started = false;
         for track in &mut self.tracks {
             if !track.muted
                 && !track.clips.is_empty()
-                && track.play_from(playhead_pos, sample_rate).is_ok()
+                && track.play_from(playhead_pos).is_ok()
                 && track.is_playing_track()
             {
                 any_started = true;
@@ -218,14 +217,13 @@ impl Session {
     /// Start playback on non-recording tracks so the user hears them while recording (overdub).
     pub fn start_overdub_playback(&mut self) {
         let playhead_pos = self.transport.playhead_position;
-        let sample_rate = self.sample_rate;
 
         let mut any_started = false;
         for track in &mut self.tracks {
             if track.state != crate::track::TrackState::Recording
                 && !track.muted
                 && !track.clips.is_empty()
-                && track.play_from(playhead_pos, sample_rate).is_ok()
+                && track.play_from(playhead_pos).is_ok()
                 && track.is_playing_track()
             {
                 any_started = true;
