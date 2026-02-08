@@ -19,10 +19,8 @@ pub mod large_reverb;
 pub use large_reverb::LargeReverb;
 pub mod delay;
 pub use delay::Delay;
-pub mod pan_left;
-pub use pan_left::PanLeft;
-pub mod pan_right;
-pub use pan_right::PanRight;
+pub mod pan;
+pub use pan::{PanLeft, PanRight};
 
 // Type alias for trait objects - trait must be object-safe
 pub type EffectBox = Box<dyn EffectTrait>;
