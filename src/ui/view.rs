@@ -80,9 +80,9 @@ impl AppView {
 
     fn render_content(f: &mut Frame, app: &App, area: Rect) {
         match app.screen {
-            Screen::MainMenu => MainMenuScreen.render(f, app, area),
-            Screen::Daw => DawScreen.render(f, app, area),
-            Screen::AudioPreferences => AudioPreferencesScreen.render(f, app, area),
+            Screen::MainMenu { .. } => MainMenuScreen.render(f, app, area),
+            Screen::Daw { .. } => DawScreen.render(f, app, area),
+            Screen::AudioPreferences { .. } => AudioPreferencesScreen.render(f, app, area),
         }
     }
 

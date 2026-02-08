@@ -15,27 +15,18 @@ mod view;
 
 pub use debug_logger::DebugLogger;
 
-// Add new screens here
 pub enum Screen {
-    MainMenu,
-    Daw,
-    AudioPreferences,
+    MainMenu { selected: usize },
+    Daw { selected_track: usize },
+    AudioPreferences { selected_panel: usize, input_selected: usize, output_selected: usize },
 }
 
 use crate::audio_engine::AudioEngine;
-use crate::effects::EffectInstance;
 use crate::session::Session;
 pub struct App {
     pub screen: Screen,
-    pub selected: usize,
     pub status: String,
-    pub selected_effects: Vec<EffectInstance>,
     pub session: Session,
-    pub input_buffer: String,
-    pub active_parameter_edit: Option<(usize, String)>, // (effect_index, parameter_name)
-    pub configuring_effects: Vec<(usize, Vec<(String, String)>)>, // (effect_index, parameters_with_empty_values)
-    pub audio_prefs_input_selected: usize,
-    pub audio_prefs_output_selected: usize,
     pub debug_logger: DebugLogger,
 }
 
@@ -50,16 +41,9 @@ impl App {
         let _ = session.add_track("Track 1".to_string());
 
         App {
-            screen: Screen::MainMenu,
-            selected: 0,
+            screen: Screen::MainMenu { selected: 0 },
             status: String::from("Ready"),
-            selected_effects: vec![],
             session,
-            input_buffer: String::new(),
-            active_parameter_edit: None,
-            configuring_effects: vec![],
-            audio_prefs_input_selected: 0,
-            audio_prefs_output_selected: 0,
             debug_logger: DebugLogger::new(debug_mode),
         }
     }
