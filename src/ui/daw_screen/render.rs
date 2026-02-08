@@ -9,9 +9,13 @@ use ratatui::{
 };
 
 use super::layout_config;
-use crate::ui::App;
+use crate::ui::{App, Screen};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
+    let selected_track_idx = match app.screen {
+        Screen::Daw { selected_track } => selected_track,
+        _ => 0,
+    };
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -61,14 +65,14 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             break;
         }
         let track = &app.session.tracks[i];
-        let is_selected = app.selected == i;
+        let is_selected = selected_track_idx == i;
 
         let border_color =
             if app.session.transport.is_playing() && !track.muted && !track.clips.is_empty() {
                 layout_config::SELECTED_BORDER // Show yellow when actively playing
             } else if track.state == crate::track::TrackState::Recording {
                 layout_config::RECORDING_BORDER
-            } else if track.armed {
+            } else if track.is_armed() {
                 layout_config::ARMED_BORDER
             } else if is_selected {
                 layout_config::SELECTED_BORDER
@@ -78,7 +82,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
         let status = if track.state == crate::track::TrackState::Recording {
             layout_config::LANE_STATUS_RECORDING
-        } else if track.armed {
+        } else if track.is_armed() {
             layout_config::LANE_STATUS_ARMED
         } else if track.muted {
             layout_config::LANE_STATUS_MUTED
@@ -86,8 +90,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             layout_config::LANE_STATUS_ACTIVE
         };
 
-        let title =
-            layout_config::format_lane_title(i + 1, track.volume, status, &track.file_path);
+        let title = layout_config::format_lane_title(i + 1, track.volume, status);
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -110,13 +113,10 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 + waveform_len as u64
                     * crate::track::RECORDING_WAVEFORM_CHUNK_SIZE as u64
         } else {
-            track.clips.iter().map(|clip| {
-                clip.starts_at + clip.wav_data.to_f64_samples().len() as u64
-            }).max().unwrap_or(0)
+            track.clips_end()
         };
 
-        // Fixed 20-second timeline
-        let timeline_samples = sample_rate as u64 * 20;
+        let timeline_samples = sample_rate as u64 * layout_config::TIMELINE_SECONDS;
 
         let canvas = Canvas::default()
             .block(block)
@@ -148,45 +148,30 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
                 // Draw waveform if present
                 if let Some(ref waveform) = waveform {
-                    if is_recording {
-                        // Recording: fixed chunk size -> each point has a stable position
+                    let (origin, samples_per_point) = if is_recording {
                         let chunk = crate::track::RECORDING_WAVEFORM_CHUNK_SIZE as f64;
-                        for (j, &(min, max)) in waveform.iter().enumerate() {
-                            let x = rec_start_pos as f64 + j as f64 * chunk;
-                            const SENSITIVITY: f64 = 8.0;
-                            let y_min = (min * SENSITIVITY).clamp(-1.0, 1.0);
-                            let y_max = (max * SENSITIVITY).clamp(-1.0, 1.0);
-
-                            ctx.draw(&Line {
-                                x1: x,
-                                y1: y_min,
-                                x2: x,
-                                y2: y_max,
-                                color: layout_config::DEFAULT_BORDER,
-                            });
-                        }
+                        (rec_start_pos as f64, chunk)
                     } else {
-                        // Clip-based: waveform spans 0..furthest_end
-                        let samples_per_point = if waveform_len > 0 {
+                        let spp = if waveform_len > 0 {
                             furthest_end as f64 / waveform_len as f64
                         } else {
                             1.0
                         };
+                        (0.0, spp)
+                    };
 
-                        for (j, &(min, max)) in waveform.iter().enumerate() {
-                            let x = j as f64 * samples_per_point;
-                            const SENSITIVITY: f64 = 8.0;
-                            let y_min = (min * SENSITIVITY).clamp(-1.0, 1.0);
-                            let y_max = (max * SENSITIVITY).clamp(-1.0, 1.0);
+                    for (j, &(min, max)) in waveform.iter().enumerate() {
+                        let x = origin + j as f64 * samples_per_point;
+                        let y_min = (min * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0);
+                        let y_max = (max * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0);
 
-                            ctx.draw(&Line {
-                                x1: x,
-                                y1: y_min,
-                                x2: x,
-                                y2: y_max,
-                                color: layout_config::DEFAULT_BORDER,
-                            });
-                        }
+                        ctx.draw(&Line {
+                            x1: x,
+                            y1: y_min,
+                            x2: x,
+                            y2: y_max,
+                            color: layout_config::DEFAULT_BORDER,
+                        });
                     }
                 }
 

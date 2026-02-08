@@ -1,28 +1,44 @@
 use crossterm::event::KeyCode;
-use crate::ui::App;
+use crate::ui::{App, Screen};
+use super::layout_config;
+
+fn selected_track(app: &App) -> usize {
+    match app.screen {
+        Screen::Daw { selected_track } => selected_track,
+        _ => 0,
+    }
+}
+
+fn set_selected_track(app: &mut App, value: usize) {
+    if let Screen::Daw { ref mut selected_track } = app.screen {
+        *selected_track = value;
+    }
+}
 
 pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::error::Error>> {
     let track_count = app.session.tracks.len();
     let max_selected = track_count.saturating_sub(1);
 
-    if track_count > 0 && app.selected >= track_count {
-        app.selected = max_selected;
+    let sel = selected_track(app);
+    if track_count > 0 && sel >= track_count {
+        set_selected_track(app, max_selected);
     }
+    let sel = selected_track(app);
 
     match key {
         KeyCode::Up => {
-            if app.selected > 0 {
-                app.selected -= 1;
+            if sel > 0 {
+                set_selected_track(app, sel - 1);
             }
         }
         KeyCode::Down => {
-            if app.selected < max_selected {
-                app.selected += 1;
+            if sel < max_selected {
+                set_selected_track(app, sel + 1);
             }
         }
         KeyCode::Left => {
             if !app.session.transport.is_playing() {
-                let delta = -(app.session.sample_rate as i64 / 2); // -0.5 seconds
+                let delta = -(app.session.sample_rate as f64 * layout_config::PLAYHEAD_DELTA_SECONDS) as i64;
                 app.session.transport.move_playhead(delta);
                 let secs = app.session.transport.playhead_seconds(app.session.sample_rate);
                 app.status = format!("Playhead: {:.1}s", secs);
@@ -30,7 +46,7 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
         }
         KeyCode::Right => {
             if !app.session.transport.is_playing() {
-                let delta = app.session.sample_rate as i64 / 2; // +0.5 seconds
+                let delta = (app.session.sample_rate as f64 * layout_config::PLAYHEAD_DELTA_SECONDS) as i64;
                 app.session.transport.move_playhead(delta);
                 let secs = app.session.transport.playhead_seconds(app.session.sample_rate);
                 app.status = format!("Playhead: {:.1}s", secs);
@@ -51,14 +67,14 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
         },
 
         KeyCode::Char('a') => {
-            let track = &mut app.session.tracks[app.selected];
-            if track.armed {
+            let track = &mut app.session.tracks[sel];
+            if track.is_armed() {
                 track.disarm();
-                app.status = format!("Track {} disarmed", app.selected + 1);
+                app.status = format!("Track {} disarmed", sel + 1);
             } else {
                 match track.arm() {
                     Ok(_) => {
-                        app.status = format!("Track {} armed", app.selected + 1);
+                        app.status = format!("Track {} armed", sel + 1);
                     }
                     Err(e) => app.status = format!("Error arming track: {}", e),
                 }
@@ -93,15 +109,15 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
 
         KeyCode::Char('M') => {
             // Toggle monitoring (capital M)
-            let track = &mut app.session.tracks[app.selected];
-            if track.armed {
+            let track = &mut app.session.tracks[sel];
+            if track.is_armed() {
                 if track.monitoring {
                     track.stop_monitoring();
-                    app.status = format!("Track {} monitoring off", app.selected + 1);
+                    app.status = format!("Track {} monitoring off", sel + 1);
                 } else {
                     match track.start_monitoring() {
                         Ok(_) => {
-                            app.status = format!("Track {} monitoring on", app.selected + 1)
+                            app.status = format!("Track {} monitoring on", sel + 1)
                         }
                         Err(e) => app.status = format!("Error starting monitoring: {}", e),
                     }
@@ -111,40 +127,38 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
             }
         }
 
-        // File operations
         KeyCode::Char('c') => {
-            app.session.tracks[app.selected].file_path.clear();
-            app.session.tracks[app.selected].clips.clear();
-            app.status = format!("Track {} cleared", app.selected + 1);
+            app.session.tracks[sel].clips.clear();
+            app.status = format!("Track {} cleared", sel + 1);
         }
 
         // Volume and mute
         KeyCode::Char('m') => {
-            app.session.tracks[app.selected].muted = !app.session.tracks[app.selected].muted;
-            let status = if app.session.tracks[app.selected].muted {
+            app.session.tracks[sel].muted = !app.session.tracks[sel].muted;
+            let status = if app.session.tracks[sel].muted {
                 "muted"
             } else {
                 "unmuted"
             };
-            app.status = format!("Track {} {}", app.selected + 1, status);
+            app.status = format!("Track {} {}", sel + 1, status);
         }
 
         KeyCode::Char('+') | KeyCode::Char('=') => {
-            let track = &mut app.session.tracks[app.selected];
+            let track = &mut app.session.tracks[sel];
             track.volume = (track.volume + 0.1).min(2.0);
             app.status = format!(
                 "Track {} volume: {:.0}%",
-                app.selected + 1,
+                sel + 1,
                 track.volume * 100.0
             );
         }
 
         KeyCode::Char('-') => {
-            let track = &mut app.session.tracks[app.selected];
+            let track = &mut app.session.tracks[sel];
             track.volume = (track.volume - 0.1).max(0.0);
             app.status = format!(
                 "Track {} volume: {:.0}%",
-                app.selected + 1,
+                sel + 1,
                 track.volume * 100.0
             );
         }
@@ -160,7 +174,7 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
                 Ok(_) => {
                     app.status = format!("Track {} added", track_num);
                     // Select the newly added track
-                    app.selected = track_count;
+                    set_selected_track(app, track_count);
                 }
                 Err(e) => app.status = format!("Cannot add track: {}", e),
             }
@@ -171,13 +185,12 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
             if track_count <= 1 {
                 app.status = "Cannot remove the last track".to_string();
             } else {
-                let selected_index = app.selected;
-                match app.session.remove_track(selected_index) {
+                match app.session.remove_track(sel) {
                     Ok(_) => {
-                        app.status = format!("Track {} removed", selected_index + 1);
+                        app.status = format!("Track {} removed", sel + 1);
                         // Adjust selected index if needed
-                        if app.selected >= app.session.tracks.len() {
-                            app.selected = app.session.tracks.len().saturating_sub(1);
+                        if sel >= app.session.tracks.len() {
+                            set_selected_track(app, app.session.tracks.len().saturating_sub(1));
                         }
                     }
                     Err(e) => app.status = format!("Cannot remove track: {}", e),
