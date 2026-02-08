@@ -6,7 +6,7 @@ use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{BufferSize, Stream};
 use ringbuf::{
     traits::{Consumer, Producer, Split},
-    HeapRb,
+    HeapCons, HeapProd, HeapRb,
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -19,7 +19,16 @@ const RING_BUFFER_MULTIPLIER: usize = 2; // Ring size = buffer_size * multiplier
 const PREFILL_BUFFER_COUNT: usize = 0; // Number of buffers to pre-fill with silence
 const MONITOR_BUFFER_SAMPLES: usize = 4800; // ~100ms @ 48kHz for UI visualization
 
-const LATENCY_MS: f32 = 10.0;
+pub const LATENCY_MS: f32 = 10.0;
+
+// Fixed chunk size for recording waveform: each peak point = this many raw samples.
+// ~20ms at 48kHz → stable left-to-right waveform growth during recording.
+pub const RECORDING_WAVEFORM_CHUNK_SIZE: usize = 960;
+
+pub struct Clip {
+    pub wav_data: WavFile,
+    pub starts_at: u64, // sample position on the timeline
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrackState {
@@ -29,7 +38,7 @@ pub enum TrackState {
 }
 
 pub struct ThreadHandles {
-    pub waveform: Option<std::thread::JoinHandle<()>>,
+    pub waveform: Option<std::thread::JoinHandle<Vec<f32>>>,
     waveform_stop: Arc<AtomicBool>,
 }
 
@@ -73,8 +82,9 @@ pub struct Track {
     pub monitor_buffer: Arc<Mutex<Vec<f32>>>,
 
     // Playback data (recorded or loaded)
-    pub wav_data: Option<WavFile>,
+    pub clips: Vec<Clip>,
     pub file_path: String,
+    pub recording_start_position: u64,
 
     // Playback state
     pub volume: f64,
@@ -86,8 +96,8 @@ pub struct Track {
     output_stream: Option<Stream>,
     playback_thread: Option<std::thread::JoinHandle<()>>,
 
-    // Recording buffer (RwLock allows concurrent reads while recording)
-    recording_buffer: Option<Arc<RwLock<Vec<f32>>>>,
+    // Recording ring buffer producer (lock-free, written by audio callback)
+    recording_producer: Option<HeapProd<f32>>,
     recording_channels: Option<u16>,
     recording_sample_rate: Option<u32>,
 
@@ -107,15 +117,16 @@ impl Default for Track {
             state: TrackState::Idle,
             fx_chain: vec![],
             monitor_buffer: Arc::new(Mutex::new(vec![0.0; MONITOR_BUFFER_SAMPLES])),
-            wav_data: None,
+            clips: Vec::new(),
             file_path: String::new(),
+            recording_start_position: 0,
             volume: 1.0,
             muted: false,
             is_playing: Arc::new(AtomicBool::new(false)),
             input_stream: None,
             output_stream: None,
             playback_thread: None,
-            recording_buffer: None,
+            recording_producer: None,
             recording_channels: None,
             recording_sample_rate: None,
             thread_handles: ThreadHandles::new(),
@@ -222,48 +233,20 @@ impl Track {
         self.monitoring = false;
     }
 
-    pub fn start_recording(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.armed {
-            return Err("Track must be armed to record".into());
-        }
+    /// Prepare this track for recording: set up buffers and waveform thread.
+    /// Does NOT open any audio device or stream — the Session owns the shared input stream.
+    pub fn prepare_recording(&mut self, playhead_position: u64, sample_rate: u32, channels: u16) {
+        self.stop_monitoring();
 
-        let input_device = AudioEngine::get_input_device()?;
+        self.recording_start_position = playhead_position;
 
-        let mut config = input_device.config.clone();
-        let sample_rate = config.sample_rate.0;
-        let recording_buffer_size = (sample_rate as f32 * LATENCY_MS / 1000.0) as u32;
+        // Create a lock-free ring buffer: 1 second of audio = huge headroom vs 50ms waveform interval
+        let ring_size = sample_rate as usize * channels as usize;
+        let ring = HeapRb::<f32>::new(ring_size);
+        let (producer, consumer) = ring.split();
 
-        config.buffer_size = BufferSize::Fixed(recording_buffer_size);
-
-        let recorded_samples = Arc::new(RwLock::new(Vec::new()));
-        let recorded_samples_clone = Arc::clone(&recorded_samples);
-
-        let monitor_buffer = Arc::clone(&self.monitor_buffer);
-
-        let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            if let Ok(mut buffer) = monitor_buffer.try_lock() {
-                buffer.truncate(0);
-                buffer.extend_from_slice(data);
-            }
-
-            // Write lock for adding new samples
-            if let Ok(mut samples) = recorded_samples_clone.write() {
-                samples.extend_from_slice(data);
-            }
-        };
-
-        let input_stream =
-            input_device
-                .device
-                .build_input_stream(&config, input_data_fn, err_fn, None)?;
-
-        input_stream.play()?;
-
-        self.input_stream = Some(input_stream);
-        self.state = TrackState::Recording;
-
-        self.recording_buffer = Some(recorded_samples);
-        self.recording_channels = Some(config.channels);
+        self.recording_producer = Some(producer);
+        self.recording_channels = Some(channels);
         self.recording_sample_rate = Some(sample_rate);
 
         // Reset waveform result for new recording
@@ -271,58 +254,89 @@ impl Track {
             waveform.clear();
         }
 
+        self.state = TrackState::Recording;
+
         // Reset stop flag and prepare for thread spawn
         self.thread_handles.reset_waveform_stop();
 
-        // Clone shared state for background thread
-        let recording_buffer_clone = Arc::clone(self.recording_buffer.as_ref().unwrap());
         let waveform_clone = Arc::clone(&self.waveform);
         let should_stop = self.thread_handles.waveform_stop();
 
         let handle = std::thread::spawn(move || {
-            const UPDATE_INTERVAL_MS: u64 = 50; // Update ~20 times per second
-
-            // Track which raw samples have been processed (needed for incremental processing)
-            let mut last_processed_sample: usize = 0;
-
-            loop {
-                // Check stop flag
-                if should_stop.load(Ordering::Relaxed) {
-                    break;
-                }
-
-                // Read new samples from recording buffer
-                if let Ok(samples) = recording_buffer_clone.try_read() {
-                    if !samples.is_empty() {
-                        let total_samples = samples.len();
-                        let new_sample_count = total_samples.saturating_sub(last_processed_sample);
-
-                        if new_sample_count > 0 {
-                            // Extract and process only new samples
-                            let new_samples = &samples[last_processed_sample..];
-                            let samples_f64: Vec<f64> =
-                                new_samples.iter().map(|&s| s as f64).collect();
-
-                            // Downsample to peaks
-                            let new_peaks = downsample_bipolar(&samples_f64);
-                            last_processed_sample = total_samples;
-
-                            // Extend waveform directly (no local cache needed)
-                            if let Ok(mut waveform) = waveform_clone.write() {
-                                waveform.extend(new_peaks);
-                            }
-                        }
-                    }
-                }
-
-                // Sleep to avoid busy-waiting
-                std::thread::sleep(std::time::Duration::from_millis(UPDATE_INTERVAL_MS));
-            }
+            Self::waveform_thread(consumer, waveform_clone, should_stop)
         });
 
         self.thread_handles.waveform = Some(handle);
+    }
 
-        Ok(())
+    /// Waveform background thread: drains ring buffer consumer into a local accumulator,
+    /// computes waveform peaks, and returns all accumulated samples on exit.
+    fn waveform_thread(
+        mut consumer: HeapCons<f32>,
+        waveform: Arc<RwLock<Vec<(f64, f64)>>>,
+        should_stop: Arc<AtomicBool>,
+    ) -> Vec<f32> {
+        const UPDATE_INTERVAL_MS: u64 = 50;
+
+        let mut all_samples: Vec<f32> = Vec::new();
+        let mut unprocessed_offset: usize = 0; // index into all_samples of first unprocessed sample
+        let mut drain_buf = vec![0.0f32; 4800]; // reusable drain buffer (~100ms at 48kHz)
+
+        loop {
+            // Drain everything available from the ring buffer
+            loop {
+                let n = consumer.pop_slice(&mut drain_buf);
+                if n == 0 {
+                    break;
+                }
+                all_samples.extend_from_slice(&drain_buf[..n]);
+            }
+
+            // Process complete chunks for waveform display
+            let unprocessed = all_samples.len() - unprocessed_offset;
+            let complete_chunks = unprocessed / RECORDING_WAVEFORM_CHUNK_SIZE;
+
+            if complete_chunks > 0 {
+                let process_up_to =
+                    unprocessed_offset + complete_chunks * RECORDING_WAVEFORM_CHUNK_SIZE;
+                let new_samples = &all_samples[unprocessed_offset..process_up_to];
+                let samples_f64: Vec<f64> = new_samples.iter().map(|&s| s as f64).collect();
+
+                let new_peaks =
+                    downsample_bipolar_fixed(&samples_f64, RECORDING_WAVEFORM_CHUNK_SIZE);
+                unprocessed_offset = process_up_to;
+
+                if let Ok(mut wf) = waveform.write() {
+                    wf.extend(new_peaks);
+                }
+            }
+
+            if should_stop.load(Ordering::Relaxed) {
+                // Final drain after stop signal
+                loop {
+                    let n = consumer.pop_slice(&mut drain_buf);
+                    if n == 0 {
+                        break;
+                    }
+                    all_samples.extend_from_slice(&drain_buf[..n]);
+                }
+                break;
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(UPDATE_INTERVAL_MS));
+        }
+
+        all_samples
+    }
+
+    /// Take ownership of the recording ring buffer producer (moved into the audio callback).
+    pub fn take_recording_producer(&mut self) -> Option<HeapProd<f32>> {
+        self.recording_producer.take()
+    }
+
+    /// Get a clone of the monitor buffer Arc.
+    pub fn monitor_buffer_handle(&self) -> Arc<Mutex<Vec<f32>>> {
+        Arc::clone(&self.monitor_buffer)
     }
 
     pub fn stop_recording(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -333,27 +347,27 @@ impl Track {
         // Signal waveform thread to stop
         self.thread_handles.stop_waveform();
 
-        // Wait for waveform thread to finish (allows final processing)
-        if let Some(handle) = self.thread_handles.waveform.take() {
-            let _ = handle.join();
-        }
+        // Join the waveform thread to receive all accumulated samples
+        let samples = if let Some(handle) = self.thread_handles.waveform.take() {
+            handle.join().unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
-        self.input_stream = None;
         self.output_stream = None;
 
-        if let Some(buffer) = self.recording_buffer.take() {
-            if let Ok(samples) = buffer.read() {
-                if !samples.is_empty() {
-                    let channels = self.recording_channels.unwrap_or(1);
-                    let sample_rate = self.recording_sample_rate.unwrap_or(48000);
+        if !samples.is_empty() {
+            let channels = self.recording_channels.unwrap_or(1);
+            let sample_rate = self.recording_sample_rate.unwrap_or(48000);
 
-                    let samples_f64: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
-                    let mut wav = WavFile::new(sample_rate, channels);
-                    wav.from_f64_samples(&samples_f64);
+            let samples_f64: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
+            let mut wav = WavFile::new(sample_rate, channels);
+            wav.from_f64_samples(&samples_f64);
 
-                    self.wav_data = Some(wav);
-                }
-            }
+            self.clips.push(Clip {
+                wav_data: wav,
+                starts_at: self.recording_start_position,
+            });
         }
 
         self.recording_channels = None;
@@ -374,36 +388,79 @@ impl Track {
             return None;
         }
 
-        // For non-recording tracks, process from wav_data synchronously
-        let wav = self.wav_data.as_ref()?;
-        let samples = wav.to_f64_samples();
-
-        if samples.is_empty() {
+        if self.clips.is_empty() {
             return None;
         }
 
-        Some(downsample_bipolar(&samples))
+        // Composite all clips into a single sample buffer
+        let end_sample = self.clips.iter().map(|clip| {
+            clip.starts_at + clip.wav_data.to_f64_samples().len() as u64
+        }).max().unwrap_or(0);
+
+        if end_sample == 0 {
+            return None;
+        }
+
+        let mut mixed = vec![0.0f64; end_sample as usize];
+
+        for clip in &self.clips {
+            let clip_samples = clip.wav_data.to_f64_samples();
+            for (j, &sample) in clip_samples.iter().enumerate() {
+                let pos = clip.starts_at as usize + j;
+                if pos < mixed.len() {
+                    mixed[pos] += sample;
+                }
+            }
+        }
+
+        Some(downsample_bipolar(&mixed))
     }
 
-    pub fn play(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn play_from(&mut self, playhead_position: u64, _session_sample_rate: u32) -> Result<(), Box<dyn std::error::Error>> {
         // Stop any existing playback first
         self.stop_playback();
 
-        let wav = self.wav_data.as_ref().ok_or("No audio data to play")?;
-        let samples: Vec<f64> = wav
-            .to_f64_samples()
-            .iter()
-            .map(|&s| s * self.volume)
-            .collect();
+        if self.clips.is_empty() {
+            return Ok(()); // Nothing to play — not an error
+        }
+
+        // Use the clip's own sample rate for the audio stream to preserve correct pitch
+        let sample_rate = self.clips[0].wav_data.header.sample_rate;
+        let channels = self.clips[0].wav_data.header.num_channels;
+
+        // Find the end of the furthest clip
+        let end_sample = self.clips.iter().map(|clip| {
+            clip.starts_at + clip.wav_data.to_f64_samples().len() as u64
+        }).max().unwrap_or(0);
+
+        if playhead_position >= end_sample {
+            return Ok(()); // Playhead is past all clips — nothing to play
+        }
+
+        // Build mixed buffer from playhead_position to end
+        let buffer_len = (end_sample - playhead_position) as usize;
+        let mut mixed = vec![0.0f64; buffer_len];
+
+        for clip in &self.clips {
+            let clip_samples = clip.wav_data.to_f64_samples();
+            for (j, &sample) in clip_samples.iter().enumerate() {
+                let absolute_pos = clip.starts_at + j as u64;
+                if absolute_pos >= playhead_position && absolute_pos < end_sample {
+                    let buf_idx = (absolute_pos - playhead_position) as usize;
+                    mixed[buf_idx] += sample;
+                }
+            }
+        }
+
+        // Apply volume
+        let volume = self.volume;
+        let samples: Vec<f64> = mixed.iter().map(|&s| s * volume).collect();
 
         let output_device = {
             let engine = AudioEngine::global();
             let engine = engine.lock().unwrap();
             engine.selected_output().map(|s| s.to_string())
         };
-
-        let sample_rate = wav.header.sample_rate;
-        let channels = wav.header.num_channels;
 
         // Reset flag
         self.is_playing.store(true, Ordering::Relaxed);
@@ -447,7 +504,6 @@ impl Track {
                 &config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     if !is_playing_for_closure.load(Ordering::Relaxed) {
-                        // Output silence when stopped/cancelled
                         for frame in data.iter_mut() {
                             *frame = 0.0;
                         }
@@ -472,7 +528,6 @@ impl Track {
                     return;
                 }
 
-                // Wait for playback to complete or be cancelled
                 let duration = total_samples as f64 / sample_rate as f64;
                 let start = std::time::Instant::now();
                 while start.elapsed().as_secs_f64() < duration {
@@ -536,6 +591,19 @@ fn downsample_bipolar(samples: &[f64]) -> Vec<(f64, f64)> {
 
     samples
         .chunks(chunk_size)
+        .map(|chunk| {
+            let min = chunk.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max = chunk.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            (min, max)
+        })
+        .collect()
+}
+
+/// Fixed chunk_size version — each point always represents the same number of samples.
+/// Only processes complete chunks; leftover samples are ignored (caller should track offset).
+fn downsample_bipolar_fixed(samples: &[f64], chunk_size: usize) -> Vec<(f64, f64)> {
+    samples
+        .chunks_exact(chunk_size)
         .map(|chunk| {
             let min = chunk.iter().cloned().fold(f64::INFINITY, f64::min);
             let max = chunk.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
