@@ -4,7 +4,7 @@ use ratatui::{
     style::{Color, Style},
     widgets::{
         canvas::{Canvas, Line},
-        Block, Borders, Gauge, List, ListItem, Paragraph,
+        Block, BorderType, Borders, Gauge, List, ListItem, Paragraph,
     },
     Frame,
 };
@@ -19,7 +19,9 @@ mod layout_config {
     pub const SELECTED_BORDER: Color = Color::Yellow;
     pub const DEFAULT_BORDER: Color = Color::White;
     pub const ARMED_BORDER: Color = Color::Red;
+    pub const ARMED_SELECTED_BORDER: Color = Color::LightRed;
     pub const RECORDING_BORDER: Color = Color::Magenta;
+    pub const RECORDING_SELECTED_BORDER: Color = Color::LightMagenta;
     pub const EMPTY_LANE_MESSAGE: &str = "'p': Solo | 'a': Arm | 'r': Record | 'f': Record Armed";
     pub const LANE_STATUS_EMPTY: &str = "Empty";
     pub const LANE_STATUS_ARMED: &str = "ARMED";
@@ -111,8 +113,12 @@ impl ScreenTrait for DawScreen {
             let border_color =
                 if app.session.transport.is_playing() && !track.muted && track.wav_data.is_some() {
                     layout_config::SELECTED_BORDER // Show yellow when actively playing
+                } else if track.state == crate::track::TrackState::Recording && is_selected {
+                    layout_config::RECORDING_SELECTED_BORDER
                 } else if track.state == crate::track::TrackState::Recording {
                     layout_config::RECORDING_BORDER
+                } else if track.armed && is_selected {
+                    layout_config::ARMED_SELECTED_BORDER
                 } else if track.armed {
                     layout_config::ARMED_BORDER
                 } else if is_selected {
@@ -136,6 +142,11 @@ impl ScreenTrait for DawScreen {
 
             let block = Block::default()
                 .borders(Borders::ALL)
+                .border_type(if is_selected {
+                    BorderType::Thick
+                } else {
+                    BorderType::Plain
+                })
                 .border_style(Style::default().fg(border_color))
                 .title(title);
 
