@@ -8,7 +8,6 @@ use std::io;
 mod audio_preferences_screen;
 mod daw_screen;
 mod debug_logger;
-mod effects_screen;
 mod event_handler;
 mod main_menu_screen;
 mod screen_trait;
@@ -19,7 +18,6 @@ pub use debug_logger::DebugLogger;
 // Add new screens here
 pub enum Screen {
     MainMenu,
-    Effects,
     Daw,
     AudioPreferences,
 }
@@ -27,17 +25,12 @@ pub enum Screen {
 use crate::audio_engine::AudioEngine;
 use crate::effects::EffectInstance;
 use crate::session::Session;
-use crate::wav::WavFile;
-
 pub struct App {
     pub screen: Screen,
     pub selected: usize,
     pub status: String,
-    pub record_duration: String,
-    pub wav_file: Option<WavFile>,
     pub selected_effects: Vec<EffectInstance>,
     pub session: Session,
-    pub input_mode: bool,
     pub input_buffer: String,
     pub active_parameter_edit: Option<(usize, String)>, // (effect_index, parameter_name)
     pub configuring_effects: Vec<(usize, Vec<(String, String)>)>, // (effect_index, parameters_with_empty_values)
@@ -60,11 +53,8 @@ impl App {
             screen: Screen::MainMenu,
             selected: 0,
             status: String::from("Ready"),
-            record_duration: String::from("10"),
-            wav_file: None,
             selected_effects: vec![],
             session,
-            input_mode: false,
             input_buffer: String::new(),
             active_parameter_edit: None,
             configuring_effects: vec![],
