@@ -4,17 +4,12 @@ mod recording;
 
 use crate::effects::EffectInstance;
 use crate::wav::WavFile;
-use cpal::Stream;
 use ringbuf::HeapProd;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex, RwLock,
 };
 
-// Audio configuration constants
-const AUDIO_BUFFER_SIZE: u32 = 32; // Frames per callback (~0.67ms @ 48kHz)
-const RING_BUFFER_MULTIPLIER: usize = 2; // Ring size = buffer_size * multiplier
-const PREFILL_BUFFER_COUNT: usize = 0; // Number of buffers to pre-fill with silence
 const MONITOR_BUFFER_SAMPLES: usize = 4800; // ~100ms @ 48kHz for UI visualization
 
 pub const LATENCY_MS: f32 = 10.0;
@@ -86,12 +81,6 @@ pub struct Track {
     // Playback state
     pub volume: f64,
     pub muted: bool,
-    pub is_playing: Arc<AtomicBool>,
-
-    // Audio streams
-    input_stream: Option<Stream>,
-    output_stream: Option<Stream>,
-    playback_thread: Option<std::thread::JoinHandle<()>>,
 
     // Recording ring buffer producer (lock-free, written by audio callback)
     recording_producer: Option<HeapProd<f32>>,
@@ -117,10 +106,6 @@ impl Default for Track {
             recording_start_position: 0,
             volume: 1.0,
             muted: false,
-            is_playing: Arc::new(AtomicBool::new(false)),
-            input_stream: None,
-            output_stream: None,
-            playback_thread: None,
             recording_producer: None,
             recording_channels: None,
             recording_sample_rate: None,
@@ -142,10 +127,9 @@ impl Track {
         matches!(self.state, TrackState::Armed | TrackState::Recording)
     }
 
-    pub fn arm(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn arm(&mut self) {
         self.state = TrackState::Armed;
-        self.start_monitoring()?;
-        Ok(())
+        self.start_monitoring();
     }
 
     pub fn disarm(&mut self) {
@@ -187,8 +171,6 @@ impl Track {
     }
 
     pub fn cleanup(&mut self) {
-        self.stop_playback();
-
         if self.state == TrackState::Recording {
             let _ = self.stop_recording();
         }
@@ -196,8 +178,6 @@ impl Track {
         if self.is_armed() {
             self.disarm();
         }
-
-        self.stop_monitoring();
     }
 }
 
@@ -225,8 +205,4 @@ pub fn update_monitor_buffer(buffer: &Mutex<Vec<f32>>, data: &[f32]) {
         buf.clear();
         buf.extend_from_slice(data);
     }
-}
-
-fn err_fn(err: cpal::StreamError) {
-    eprintln!("Track stream error: {err}");
 }

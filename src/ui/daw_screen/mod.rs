@@ -23,7 +23,7 @@ mod layout_config {
     pub const TIMELINE_SECONDS: u64 = 20;
     pub const PLAYHEAD_DELTA_SECONDS: f64 = 0.5;
     pub const GLOBAL_INSTRUCTIONS: &str =
-        "n: Add new track | d: Delete track | Space: Play all tracks | Left/Right: Move playhead";
+        "n: Add new track | d: Delete track | Space: Play all tracks | Left/Right: Move playhead | h: Reset playhead";
 
     pub fn get_lane_constraints(track_count: usize) -> Vec<Constraint> {
         let denominator = track_count.max(3) as u32;

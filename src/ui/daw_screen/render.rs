@@ -26,7 +26,10 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     let is_playing = app.session.transport.is_playing();
-    let playhead_secs = app.session.transport.playhead_seconds(app.session.sample_rate);
+    let playhead_secs = app
+        .session
+        .transport
+        .playhead_seconds(app.session.sample_rate);
     let minutes = (playhead_secs / 60.0) as u32;
     let secs = playhead_secs % 60.0;
 
@@ -109,9 +112,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         // Calculate furthest_end based on track state
         let furthest_end = if is_recording {
             // Each waveform point = exactly RECORDING_WAVEFORM_CHUNK_SIZE samples
-            rec_start_pos
-                + waveform_len as u64
-                    * crate::track::RECORDING_WAVEFORM_CHUNK_SIZE as u64
+            rec_start_pos + waveform_len as u64 * crate::track::RECORDING_WAVEFORM_CHUNK_SIZE as u64
         } else {
             track.clips_end()
         };
@@ -131,20 +132,6 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     y2: 0.0,
                     color: Color::DarkGray,
                 });
-
-                // Draw second markers along the timeline
-                let total_seconds = (timeline_samples / sample_rate as u64) as usize;
-                for s in 0..=total_seconds {
-                    let x = s as f64 * sample_rate as f64;
-                    let tick_height = if s % 5 == 0 { 0.15 } else { 0.08 };
-                    ctx.draw(&Line {
-                        x1: x,
-                        y1: -tick_height,
-                        x2: x,
-                        y2: tick_height,
-                        color: Color::DarkGray,
-                    });
-                }
 
                 // Draw waveform if present
                 if let Some(ref waveform) = waveform {

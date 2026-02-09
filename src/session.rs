@@ -1,22 +1,28 @@
 use crate::audio_engine::AudioEngine;
-use crate::track::{update_monitor_buffer, Track, LATENCY_MS};
+use crate::master_bus::{MasterBus, MasterBusConfig};
+use crate::track::{update_monitor_buffer, Track, TrackState};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{BufferSize, Stream};
-use ringbuf::{traits::Producer, HeapProd};
+use ringbuf::{
+    traits::{Producer, Split},
+    HeapProd, HeapRb,
+};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+
+const INPUT_BUFFER_FRAMES: u32 = 32;
+const MONITOR_RING_BUFFER_SIZE: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportState {
     Stopped,
     Playing,
+    Recording,
 }
 
 pub struct Transport {
     pub state: TransportState,
     pub playhead_position: u64,
     playback_origin: u64,
-    playback_start_time: Option<Instant>,
 }
 
 impl Default for Transport {
@@ -25,7 +31,6 @@ impl Default for Transport {
             state: TransportState::Stopped,
             playhead_position: 0,
             playback_origin: 0,
-            playback_start_time: None,
         }
     }
 }
@@ -34,16 +39,22 @@ impl Transport {
     pub fn play(&mut self) {
         self.state = TransportState::Playing;
         self.playback_origin = self.playhead_position;
-        self.playback_start_time = Some(Instant::now());
+    }
+
+    pub fn record(&mut self) {
+        self.state = TransportState::Recording;
+        self.playback_origin = self.playhead_position;
     }
 
     pub fn stop(&mut self) {
         self.state = TransportState::Stopped;
-        self.playback_start_time = None;
     }
 
     pub fn is_playing(&self) -> bool {
-        self.state == TransportState::Playing
+        matches!(
+            self.state,
+            TransportState::Playing | TransportState::Recording
+        )
     }
 
     pub fn move_playhead(&mut self, delta_samples: i64) {
@@ -56,16 +67,16 @@ impl Transport {
         }
     }
 
+    pub fn reset_playhead(&mut self) {
+        self.playhead_position = 0;
+    }
+
     pub fn playhead_seconds(&self, sample_rate: u32) -> f64 {
         self.playhead_position as f64 / sample_rate as f64
     }
 
-    pub fn advance_playhead(&mut self, sample_rate: u32) {
-        if let Some(start_time) = self.playback_start_time {
-            let elapsed_secs = start_time.elapsed().as_secs_f64();
-            let elapsed_samples = (elapsed_secs * sample_rate as f64) as u64;
-            self.playhead_position = self.playback_origin + elapsed_samples;
-        }
+    pub fn advance_playhead_from_master(&mut self, samples_consumed: u64) {
+        self.playhead_position = self.playback_origin + samples_consumed;
     }
 }
 
@@ -74,6 +85,7 @@ pub struct Session {
     pub tracks: Vec<Track>,
     pub sample_rate: u32,
     pub transport: Transport,
+    master_bus: MasterBus,
     shared_input_stream: Option<Stream>,
 }
 
@@ -84,6 +96,7 @@ impl Session {
             tracks: Vec::new(),
             sample_rate,
             transport: Transport::default(),
+            master_bus: MasterBus::default(),
             shared_input_stream: None,
         }
     }
@@ -109,6 +122,8 @@ impl Session {
         self.tracks.len()
     }
 
+    // --- Playback ---
+
     pub fn toggle_playback(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.transport.is_playing() {
             self.stop_playback()
@@ -120,61 +135,73 @@ impl Session {
     pub fn start_playback(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let playhead_pos = self.transport.playhead_position;
 
-        // Start playback on all eligible tracks (don't let one failure stop others)
-        let mut any_started = false;
-        for track in &mut self.tracks {
-            if !track.muted
-                && !track.clips.is_empty()
-                && track.play_from(playhead_pos).is_ok()
-                && track.is_playing_track()
-            {
-                any_started = true;
-            }
+        // Pre-render all tracks from playhead position and mix them into one mono buffer
+        // This happens BEFORE playback starts (not real-time)
+        let master_buffer = self.render_master_buffer(playhead_pos);
+        if master_buffer.is_empty() {
+            return Ok(());
         }
 
-        // Only set transport to Playing if at least one track started
-        if any_started {
-            self.transport.play();
-        }
+        let monitor_consumer = self.build_monitor_consumer();
 
+        self.master_bus.start(MasterBusConfig {
+            playback_samples: Some(master_buffer),
+            monitor_consumer,
+            sample_rate: self.sample_rate,
+            low_latency: false,
+        })?;
+
+        self.transport.play();
         Ok(())
     }
 
     pub fn stop_playback(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        for track in &mut self.tracks {
-            track.stop_playback();
-        }
-
+        self.master_bus.stop();
         self.transport.stop();
+
+        self.refresh_monitoring();
+
         Ok(())
     }
 
-    /// Start recording on all armed tracks using a single shared input stream.
-    /// Returns the number of tracks that started recording.
+    pub fn check_playback_status(&mut self) {
+        if self.transport.is_playing() {
+            let frames_consumed = self.master_bus.frames_consumed();
+            self.transport.advance_playhead_from_master(frames_consumed);
+
+            if self.master_bus.is_finished() {
+                self.master_bus.stop();
+                self.transport.stop();
+                self.refresh_monitoring();
+            }
+        }
+    }
+
+    // --- Recording ---
+
     pub fn start_recording(&mut self) -> Result<usize, Box<dyn std::error::Error>> {
         let armed_count = self.tracks.iter().filter(|t| t.is_armed()).count();
         if armed_count == 0 {
             return Ok(0);
         }
 
-        // Get input device ONCE
+        self.master_bus.stop();
+        self.shared_input_stream = None;
+
         let input_device = AudioEngine::get_input_device()?;
         let mut config = input_device.config.clone();
         let sample_rate = config.sample_rate.0;
         let channels = config.channels;
-        let recording_buffer_size = (sample_rate as f32 * LATENCY_MS / 1000.0) as u32;
-        config.buffer_size = BufferSize::Fixed(recording_buffer_size);
+        config.buffer_size = BufferSize::Fixed(INPUT_BUFFER_FRAMES);
 
         let playhead_pos = self.transport.playhead_position;
 
-        // Prepare all armed tracks (sets up buffers, waveform threads, state)
         for track in &mut self.tracks {
             if track.is_armed() {
                 track.prepare_recording(playhead_pos, sample_rate, channels);
             }
         }
 
-        // Take ring buffer producers and monitor handles from all recording tracks
         let mut rec_producers: Vec<HeapProd<f32>> = Vec::new();
         let mut mon_buffers: Vec<Arc<Mutex<Vec<f32>>>> = Vec::new();
 
@@ -185,13 +212,21 @@ impl Session {
             }
         }
 
-        // Build ONE input stream that fans data to ALL recording tracks (lock-free)
+        let monitor_ring_size = sample_rate as usize;
+        let monitor_ring = HeapRb::<f32>::new(monitor_ring_size);
+        let (mut monitor_producer, monitor_consumer) = monitor_ring.split();
+
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             for mon in &mon_buffers {
                 update_monitor_buffer(mon, data);
             }
             for prod in &mut rec_producers {
                 prod.push_slice(data);
+            }
+
+            let ch = channels as usize;
+            for frame_start in (0..data.len()).step_by(ch) {
+                let _ = monitor_producer.try_push(data[frame_start]);
             }
         };
 
@@ -205,65 +240,115 @@ impl Session {
         input_stream.play()?;
         self.shared_input_stream = Some(input_stream);
 
-        // Start overdub playback on non-recording tracks
-        self.start_overdub_playback();
+        let playback_buffer = self.render_overdub_buffer(playhead_pos);
+
+        self.master_bus.start(MasterBusConfig {
+            playback_samples: if playback_buffer.is_empty() {
+                None
+            } else {
+                Some(playback_buffer)
+            },
+            monitor_consumer: Some(monitor_consumer),
+            sample_rate: self.sample_rate,
+            low_latency: true,
+        })?;
+
+        self.transport.record();
 
         Ok(armed_count)
     }
 
-    /// Start playback on non-recording tracks so the user hears them while recording (overdub).
-    pub fn start_overdub_playback(&mut self) {
-        let playhead_pos = self.transport.playhead_position;
-
-        let mut any_started = false;
-        for track in &mut self.tracks {
-            if track.state != crate::track::TrackState::Recording
-                && !track.muted
-                && !track.clips.is_empty()
-                && track.play_from(playhead_pos).is_ok()
-                && track.is_playing_track()
-            {
-                any_started = true;
-            }
-        }
-
-        if any_started {
-            self.transport.play();
-        }
-    }
-
-    /// Stop recording on all tracks that are recording, and stop playback.
     pub fn stop_all_recording(&mut self) {
         // Drop shared input stream FIRST to stop audio capture
         self.shared_input_stream = None;
+        self.master_bus.stop();
 
+        // Finalize all recording tracks (save buffers to track data)
         for track in &mut self.tracks {
-            if track.state == crate::track::TrackState::Recording {
+            if track.state == TrackState::Recording {
                 let _ = track.stop_recording();
             }
-            track.stop_playback();
         }
         self.transport.stop();
+
+        // Restart monitoring if any tracks are still armed
+        self.refresh_monitoring();
     }
 
-    pub fn check_playback_status(&mut self) {
+    // --- Monitoring ---
+
+    pub fn start_monitoring(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let has_armed = self.tracks.iter().any(|t| t.is_armed() && t.monitoring);
+        if !has_armed {
+            return Ok(());
+        }
+
         if self.transport.is_playing() {
-            // Advance playhead based on elapsed time
-            self.transport.advance_playhead(self.sample_rate);
+            return Ok(());
+        }
 
-            let all_finished = self.tracks.iter().all(|track| {
-                if track.clips.is_empty() || track.muted {
-                    true
-                } else {
-                    !track.is_playing_track()
-                }
-            });
+        let input_device = AudioEngine::get_input_device()?;
+        let mut config = input_device.config.clone();
+        let channels = config.channels;
+        config.buffer_size = BufferSize::Fixed(INPUT_BUFFER_FRAMES);
 
-            if all_finished {
-                self.transport.stop();
+        let mon_buffers: Vec<Arc<Mutex<Vec<f32>>>> = self
+            .tracks
+            .iter()
+            .filter(|t| t.is_armed() && t.monitoring)
+            .map(|t| t.monitor_buffer_handle())
+            .collect();
+
+        let monitor_ring_size = MONITOR_RING_BUFFER_SIZE;
+        let monitor_ring = HeapRb::<f32>::new(monitor_ring_size);
+        let (mut monitor_producer, monitor_consumer) = monitor_ring.split();
+
+        let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+            for mon in &mon_buffers {
+                update_monitor_buffer(mon, data);
             }
+            let input_channels = channels as usize;
+            for frame_start in (0..data.len()).step_by(input_channels) {
+                let _ = monitor_producer.try_push(data[frame_start]);
+            }
+        };
+
+        let input_stream = input_device.device.build_input_stream(
+            &config,
+            input_data_fn,
+            |err| eprintln!("Monitor input stream error: {err}"),
+            None,
+        )?;
+
+        input_stream.play()?;
+        self.shared_input_stream = Some(input_stream);
+
+        self.master_bus.start(MasterBusConfig {
+            playback_samples: None,
+            monitor_consumer: Some(monitor_consumer),
+            sample_rate: self.sample_rate,
+            low_latency: true,
+        })?;
+
+        Ok(())
+    }
+
+    pub fn stop_monitoring(&mut self) {
+        if !self.transport.is_playing() {
+            self.shared_input_stream = None;
+            self.master_bus.stop();
         }
     }
+
+    /// Restart monitoring if any tracks are armed and monitoring is enabled.
+    fn refresh_monitoring(&mut self) {
+        let has_monitoring = self.tracks.iter().any(|t| t.is_armed() && t.monitoring);
+        if has_monitoring {
+            let _ = self.start_monitoring();
+        }
+    }
+
+    // --- Track management ---
 
     pub fn remove_track(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
         const MIN_TRACKS: usize = 1;
@@ -275,12 +360,62 @@ impl Session {
             return Err("Track index out of bounds".into());
         }
 
-        // Cleanup the track before removal
         self.tracks[index].cleanup();
-
-        // Remove the track
         self.tracks.remove(index);
 
         Ok(())
+    }
+
+    // --- Internal helpers ---
+
+    /// Pre-render all non-muted tracks and sum into a mono buffer.
+    fn render_master_buffer(&self, playhead_pos: u64) -> Vec<f32> {
+        self.mix_tracks(playhead_pos, |_| true)
+    }
+
+    /// Pre-render non-recording tracks for overdub playback.
+    fn render_overdub_buffer(&self, playhead_pos: u64) -> Vec<f32> {
+        self.mix_tracks(playhead_pos, |t| t.state != TrackState::Recording)
+    }
+
+    /// Sum rendered samples from tracks matching the predicate.
+    /// This is where the actual mixing happens - each track renders its audio
+    /// from the playhead position, then we sum them all together.
+    fn mix_tracks(&self, playhead_pos: u64, include: impl Fn(&Track) -> bool) -> Vec<f32> {
+        let mut master: Vec<f32> = Vec::new();
+
+        for track in &self.tracks {
+            if !include(track) {
+                continue;
+            }
+            // Ask the track to render its audio from this position
+            let rendered = track.render(playhead_pos);
+            if rendered.is_empty() {
+                continue;
+            }
+            // Mix by summing samples
+            if master.is_empty() {
+                master = rendered;
+            } else {
+                // Extend master buffer if this track is longer
+                if rendered.len() > master.len() {
+                    master.resize(rendered.len(), 0.0);
+                }
+                // Add this track's samples to the master mix
+                for (i, &s) in rendered.iter().enumerate() {
+                    master[i] += s;
+                }
+            }
+        }
+
+        master
+    }
+
+    /// Build a monitor consumer if any armed tracks have monitoring enabled.
+    /// Returns None if no monitoring is active or during recording.
+    fn build_monitor_consumer(&self) -> Option<ringbuf::HeapCons<f32>> {
+        // During playback, we don't set up live monitoring from scratch.
+        // Monitoring is handled by start_monitoring() / recording flow.
+        None
     }
 }
