@@ -1,6 +1,6 @@
 use crate::audio_engine::AudioEngine;
 use crate::master_bus::{MasterBus, MasterBusConfig};
-use crate::track::{update_monitor_buffer, Track, TrackState, LATENCY_MS};
+use crate::track::{update_monitor_buffer, Track, TrackState};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{BufferSize, Stream};
 use ringbuf::{
@@ -8,6 +8,9 @@ use ringbuf::{
     HeapProd, HeapRb,
 };
 use std::sync::{Arc, Mutex};
+
+const INPUT_BUFFER_FRAMES: u32 = 32;
+const MONITOR_RING_BUFFER_SIZE: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransportState {
@@ -189,8 +192,7 @@ impl Session {
         let mut config = input_device.config.clone();
         let sample_rate = config.sample_rate.0;
         let channels = config.channels;
-        let recording_buffer_size = (sample_rate as f32 * LATENCY_MS / 1000.0) as u32;
-        config.buffer_size = BufferSize::Fixed(recording_buffer_size);
+        config.buffer_size = BufferSize::Fixed(INPUT_BUFFER_FRAMES);
 
         let playhead_pos = self.transport.playhead_position;
 
@@ -210,7 +212,7 @@ impl Session {
             }
         }
 
-        let monitor_ring_size = sample_rate as usize; // 1 second of headroom
+        let monitor_ring_size = sample_rate as usize;
         let monitor_ring = HeapRb::<f32>::new(monitor_ring_size);
         let (mut monitor_producer, monitor_consumer) = monitor_ring.split();
 
@@ -286,8 +288,9 @@ impl Session {
         }
 
         let input_device = AudioEngine::get_input_device()?;
-        let config = input_device.config.clone();
+        let mut config = input_device.config.clone();
         let channels = config.channels;
+        config.buffer_size = BufferSize::Fixed(INPUT_BUFFER_FRAMES);
 
         let mon_buffers: Vec<Arc<Mutex<Vec<f32>>>> = self
             .tracks
@@ -296,7 +299,7 @@ impl Session {
             .map(|t| t.monitor_buffer_handle())
             .collect();
 
-        let monitor_ring_size = config.sample_rate.0 as usize;
+        let monitor_ring_size = MONITOR_RING_BUFFER_SIZE;
         let monitor_ring = HeapRb::<f32>::new(monitor_ring_size);
         let (mut monitor_producer, monitor_consumer) = monitor_ring.split();
 

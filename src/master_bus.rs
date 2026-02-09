@@ -6,7 +6,7 @@ use ringbuf::HeapCons;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
-const MONITOR_BUFFER_FRAMES: u32 = 32;
+const OUTPUT_BUFFER_FRAMES: u32 = 32;
 
 pub struct MasterBusConfig {
     pub playback_samples: Option<Vec<f32>>,
@@ -41,7 +41,7 @@ impl MasterBus {
         let channels = output_device.channels as usize;
 
         let buffer_size = if config.low_latency {
-            cpal::BufferSize::Fixed(MONITOR_BUFFER_FRAMES)
+            cpal::BufferSize::Fixed(OUTPUT_BUFFER_FRAMES)
         } else {
             cpal::BufferSize::Default
         };
