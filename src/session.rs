@@ -64,6 +64,10 @@ impl Transport {
         }
     }
 
+    pub fn reset_playhead(&mut self) {
+        self.playhead_position = 0;
+    }
+
     pub fn playhead_seconds(&self, sample_rate: u32) -> f64 {
         self.playhead_position as f64 / sample_rate as f64
     }

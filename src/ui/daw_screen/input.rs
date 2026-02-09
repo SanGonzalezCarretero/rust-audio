@@ -63,6 +63,12 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
                 app.status = format!("Playhead: {:.1}s", secs);
             }
         }
+        KeyCode::Char('h') => {
+            if !app.session.transport.is_playing() {
+                app.session.transport.reset_playhead();
+                app.status = "Playhead reset to start".to_string();
+            }
+        }
 
         // Global transport control
         KeyCode::Char(' ') | KeyCode::Enter => match app.session.toggle_playback() {
