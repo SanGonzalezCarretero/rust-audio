@@ -131,8 +131,6 @@ impl Track {
             Vec::new()
         };
 
-        self.output_stream = None;
-
         if !samples.is_empty() {
             let channels = self.recording_channels.unwrap_or(1);
             let sample_rate = self.recording_sample_rate.unwrap_or(48000);
