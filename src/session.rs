@@ -212,8 +212,7 @@ impl Session {
             }
         }
 
-        let monitor_ring_size = sample_rate as usize;
-        let monitor_ring = HeapRb::<f32>::new(monitor_ring_size);
+        let monitor_ring = HeapRb::<f32>::new(MONITOR_RING_BUFFER_SIZE);
         let (mut monitor_producer, monitor_consumer) = monitor_ring.split();
 
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
@@ -230,17 +229,14 @@ impl Session {
             }
         };
 
+        let playback_buffer = self.render_overdub_buffer(playhead_pos);
+
         let input_stream = input_device.device.build_input_stream(
             &config,
             input_data_fn,
             |err| eprintln!("Shared input stream error: {err}"),
             None,
         )?;
-
-        input_stream.play()?;
-        self.shared_input_stream = Some(input_stream);
-
-        let playback_buffer = self.render_overdub_buffer(playhead_pos);
 
         self.master_bus.start(MasterBusConfig {
             playback_samples: if playback_buffer.is_empty() {
@@ -252,6 +248,10 @@ impl Session {
             sample_rate: self.sample_rate,
             low_latency: true,
         })?;
+
+        // Start input AFTER master bus so both streams begin together
+        input_stream.play()?;
+        self.shared_input_stream = Some(input_stream);
 
         self.transport.record();
 
@@ -373,9 +373,8 @@ impl Session {
         self.mix_tracks(playhead_pos, |_| true)
     }
 
-    /// Pre-render non-recording tracks for overdub playback.
     fn render_overdub_buffer(&self, playhead_pos: u64) -> Vec<f32> {
-        self.mix_tracks(playhead_pos, |t| t.state != TrackState::Recording)
+        self.mix_tracks(playhead_pos, |_| true)
     }
 
     /// Sum rendered samples from tracks matching the predicate.
