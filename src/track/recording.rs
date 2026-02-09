@@ -154,8 +154,8 @@ impl Track {
     }
 
     /// Recompute the waveform cache from all clips.
-    /// Called once after recording stops (not per-frame).
-    fn cache_waveform(&self) {
+    /// Called once after recording stops, or after loading clips from a project.
+    pub(crate) fn cache_waveform(&self) {
         if self.clips.is_empty() {
             if let Ok(mut wf) = self.waveform.write() {
                 wf.clear();

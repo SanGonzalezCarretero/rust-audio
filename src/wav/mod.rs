@@ -1,7 +1,9 @@
+use std::fs;
 use std::io::Cursor;
 use std::io::Read;
+use std::path::Path;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WavHeader {
     pub chunk_id: [u8; 4],     // "RIFF"
     pub chunk_size: u32,       // File size - 8
@@ -16,6 +18,7 @@ pub struct WavHeader {
     pub bits_per_sample: u16,  // 8 bits = 8, 16 bits = 16, etc.
 }
 
+#[derive(Clone)]
 pub struct WavFile {
     pub header: WavHeader,
     pub audio_data: Vec<u8>,
@@ -176,6 +179,20 @@ impl WavFile {
     pub fn export_to_bytes(&mut self) -> Vec<u8> {
         self.resize();
         self.to_bytes()
+    }
+
+    pub fn save_to_file<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = self.export_to_bytes();
+        fs::write(path, bytes)?;
+        Ok(())
+    }
+
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn std::error::Error>> {
+        let bytes = fs::read(path)?;
+        Self::from_bytes(bytes)
     }
 
     pub fn apply_effects(
