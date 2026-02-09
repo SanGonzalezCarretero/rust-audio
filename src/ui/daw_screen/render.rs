@@ -3,7 +3,7 @@ use ratatui::{
     style::{Color, Style},
     widgets::{
         canvas::{Canvas, Line},
-        Block, Borders, Gauge, Paragraph,
+        Block, BorderType, Borders, Gauge, Paragraph,
     },
     Frame,
 };
@@ -73,8 +73,12 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let border_color =
             if app.session.transport.is_playing() && !track.muted && !track.clips.is_empty() {
                 layout_config::SELECTED_BORDER // Show yellow when actively playing
+            } else if track.state == crate::track::TrackState::Recording && is_selected {
+                layout_config::RECORDING_SELECTED_BORDER
             } else if track.state == crate::track::TrackState::Recording {
                 layout_config::RECORDING_BORDER
+            } else if track.is_armed() && is_selected {
+                layout_config::ARMED_SELECTED_BORDER
             } else if track.is_armed() {
                 layout_config::ARMED_BORDER
             } else if is_selected {
@@ -97,6 +101,11 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
         let block = Block::default()
             .borders(Borders::ALL)
+            .border_type(if is_selected {
+                BorderType::Thick
+            } else {
+                BorderType::Plain
+            })
             .border_style(Style::default().fg(border_color))
             .title(title);
 

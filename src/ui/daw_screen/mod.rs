@@ -14,7 +14,9 @@ mod layout_config {
     pub const SELECTED_BORDER: Color = Color::Yellow;
     pub const DEFAULT_BORDER: Color = Color::White;
     pub const ARMED_BORDER: Color = Color::Red;
+    pub const ARMED_SELECTED_BORDER: Color = Color::LightRed;
     pub const RECORDING_BORDER: Color = Color::Magenta;
+    pub const RECORDING_SELECTED_BORDER: Color = Color::LightMagenta;
     pub const LANE_STATUS_ARMED: &str = "ARMED";
     pub const LANE_STATUS_MUTED: &str = "MUTED";
     pub const LANE_STATUS_ACTIVE: &str = "ACTIVE";
