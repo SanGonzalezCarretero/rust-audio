@@ -32,8 +32,9 @@ pub struct App {
 
 impl App {
     fn new(debug_mode: bool) -> Self {
-        // Get device sample rate to avoid pitch issues
-        let sample_rate = AudioEngine::get_output_device()
+        // Use input device sample rate — recordings are made at this rate,
+        // so playback and monitoring must match it for correct pitch.
+        let sample_rate = AudioEngine::get_input_device()
             .map(|d| d.sample_rate)
             .unwrap_or(48000);
 
