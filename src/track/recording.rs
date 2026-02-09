@@ -1,4 +1,4 @@
-use super::{downsample_bipolar, Clip, Track, TrackState, RECORDING_WAVEFORM_CHUNK_SIZE, WAVEFORM_MAX_POINTS};
+use super::{downsample_bipolar, generate_clip_id, Clip, Track, TrackState, RECORDING_WAVEFORM_CHUNK_SIZE, WAVEFORM_MAX_POINTS};
 use crate::wav::WavFile;
 use ringbuf::{
     traits::{Consumer, Split},
@@ -140,6 +140,7 @@ impl Track {
             wav.from_f64_samples(&samples_f64);
 
             self.clips.push(Clip {
+                id: generate_clip_id(),
                 wav_data: wav,
                 starts_at: self.recording_start_position,
             });

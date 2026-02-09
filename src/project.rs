@@ -25,7 +25,8 @@ pub struct TrackManifest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClipManifest {
-    pub file: String, // "clips/track0_clip0.wav"
+    pub id: String,
+    pub file: String, // "clips/{id}.wav"
     pub starts_at: u64,
 }
 
@@ -45,19 +46,22 @@ pub fn save_project(
     fs::create_dir_all(&clips_dir)?;
 
     let mut track_manifests = Vec::new();
-    for (track_idx, track) in session.tracks.iter().enumerate() {
+    for track in session.tracks.iter() {
         let mut clip_manifests = Vec::new();
 
-        // Save each clip as a WAV file
-        for (clip_idx, clip) in track.clips.iter().enumerate() {
-            let clip_filename = format!("track{}_clip{}.wav", track_idx, clip_idx);
+        // Save each clip as a WAV file using its unique ID
+        for clip in track.clips.iter() {
+            let clip_filename = format!("{}.wav", clip.id);
             let clip_path = clips_dir.join(&clip_filename);
 
-            // Clone the WAV data and save it
-            let mut wav = clip.wav_data.clone();
-            wav.save_to_file(&clip_path)?;
+            // Only write the file if it doesn't already exist (incremental save)
+            if !clip_path.exists() {
+                let mut wav = clip.wav_data.clone();
+                wav.save_to_file(&clip_path)?;
+            }
 
             clip_manifests.push(ClipManifest {
+                id: clip.id.clone(),
                 file: format!("clips/{}", clip_filename),
                 starts_at: clip.starts_at,
             });
@@ -110,6 +114,7 @@ pub fn load_project(project_dir: &Path) -> Result<Session, Box<dyn std::error::E
             let wav = WavFile::load_from_file(clip_path)?;
 
             track.clips.push(crate::track::Clip {
+                id: clip_manifest.id,
                 wav_data: wav,
                 starts_at: clip_manifest.starts_at,
             });

@@ -4,11 +4,13 @@ mod recording;
 
 use crate::effects::EffectInstance;
 use crate::wav::WavFile;
+use rand::Rng;
 use ringbuf::HeapProd;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex, RwLock,
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MONITOR_BUFFER_SAMPLES: usize = 4800; // ~100ms @ 48kHz for UI visualization
 
@@ -20,8 +22,18 @@ pub const RECORDING_WAVEFORM_CHUNK_SIZE: usize = 960;
 const WAVEFORM_MAX_POINTS: usize = 500;
 
 pub struct Clip {
+    pub id: String,
     pub wav_data: WavFile,
     pub starts_at: u64, // sample position on the timeline
+}
+
+pub fn generate_clip_id() -> String {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let r: u32 = rand::thread_rng().gen();
+    format!("{:x}{:08x}", ts, r)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
