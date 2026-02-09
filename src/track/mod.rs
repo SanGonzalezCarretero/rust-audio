@@ -12,7 +12,7 @@ use std::sync::{
 
 const MONITOR_BUFFER_SAMPLES: usize = 4800; // ~100ms @ 48kHz for UI visualization
 
-pub const LATENCY_MS: f32 = 100.0;
+pub const LATENCY_MS: f32 = 10.0;
 
 // Fixed chunk size for recording waveform: each peak point = this many raw samples.
 // ~20ms at 48kHz → stable left-to-right waveform growth during recording.
