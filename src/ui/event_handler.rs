@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use super::audio_preferences_screen::AudioPreferencesScreen;
 use super::daw_screen::DawScreen;
-use super::effects_screen::EffectsScreen;
 use super::main_menu_screen::MainMenuScreen;
 use super::screen_trait::ScreenTrait;
 use super::{App, Screen};
@@ -55,8 +54,7 @@ impl AppEventHandler {
     }
 
     fn handle_back_key(app: &mut App) {
-        app.screen = Screen::MainMenu;
-        app.selected = 0;
+        app.screen = Screen::MainMenu { selected: 0 };
     }
 
     fn route_to_screen_handler(
@@ -64,10 +62,9 @@ impl AppEventHandler {
         key: KeyCode,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         match app.screen {
-            Screen::MainMenu => MainMenuScreen.handle_input(app, key),
-            Screen::Effects => EffectsScreen.handle_input(app, key),
-            Screen::Daw => DawScreen.handle_input(app, key),
-            Screen::AudioPreferences => AudioPreferencesScreen.handle_input(app, key),
+            Screen::MainMenu { .. } => MainMenuScreen.handle_input(app, key),
+            Screen::Daw { .. } => DawScreen.handle_input(app, key),
+            Screen::AudioPreferences { .. } => AudioPreferencesScreen.handle_input(app, key),
         }
     }
 }

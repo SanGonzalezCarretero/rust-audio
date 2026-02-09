@@ -11,6 +11,23 @@ use ratatui::{
 
 pub struct AudioPreferencesScreen;
 
+fn get_prefs(app: &App) -> (usize, usize, usize) {
+    match app.screen {
+        Screen::AudioPreferences { selected_panel, input_selected, output_selected } => {
+            (selected_panel, input_selected, output_selected)
+        }
+        _ => (0, 0, 0),
+    }
+}
+
+fn set_prefs(app: &mut App, panel: usize, input: usize, output: usize) {
+    app.screen = Screen::AudioPreferences {
+        selected_panel: panel,
+        input_selected: input,
+        output_selected: output,
+    };
+}
+
 impl ScreenTrait for AudioPreferencesScreen {
     fn render(&self, f: &mut Frame, app: &App, area: Rect) {
         let chunks = Layout::default()
@@ -22,6 +39,8 @@ impl ScreenTrait for AudioPreferencesScreen {
             ])
             .split(area);
 
+        let (selected_panel, input_selected, output_selected) = get_prefs(app);
+
         let ctx = AudioEngine::global();
         let ctx = ctx.lock().unwrap();
 
@@ -30,7 +49,7 @@ impl ScreenTrait for AudioPreferencesScreen {
             .iter()
             .enumerate()
             .map(|(i, name)| {
-                let is_selected = app.selected == 0 && i == app.audio_prefs_input_selected;
+                let is_selected = selected_panel == 0 && i == input_selected;
                 let is_active = ctx.selected_input() == Some(name.as_str());
 
                 let style = if is_selected {
@@ -56,7 +75,7 @@ impl ScreenTrait for AudioPreferencesScreen {
             .iter()
             .enumerate()
             .map(|(i, name)| {
-                let is_selected = app.selected == 1 && i == app.audio_prefs_output_selected;
+                let is_selected = selected_panel == 1 && i == output_selected;
                 let is_active = ctx.selected_output() == Some(name.as_str());
 
                 let style = if is_selected {
@@ -92,7 +111,7 @@ impl ScreenTrait for AudioPreferencesScreen {
         f.render_widget(input_list, chunks[0]);
         f.render_widget(output_list, chunks[1]);
 
-        let refresh_style = if app.selected == 2 {
+        let refresh_style = if selected_panel == 2 {
             Style::default().fg(Color::Black).bg(Color::Green)
         } else {
             Style::default().fg(Color::White)
@@ -114,40 +133,42 @@ impl ScreenTrait for AudioPreferencesScreen {
         let engine = AudioEngine::global();
         let mut engine = engine.lock().unwrap();
 
+        let (panel, input_sel, output_sel) = get_prefs(app);
+
         match key {
             KeyCode::Up => {
-                if app.selected == 0 && app.audio_prefs_input_selected > 0 {
-                    app.audio_prefs_input_selected -= 1;
-                } else if app.selected == 1 && app.audio_prefs_output_selected > 0 {
-                    app.audio_prefs_output_selected -= 1;
+                if panel == 0 && input_sel > 0 {
+                    set_prefs(app, panel, input_sel - 1, output_sel);
+                } else if panel == 1 && output_sel > 0 {
+                    set_prefs(app, panel, input_sel, output_sel - 1);
                 }
             }
             KeyCode::Down => {
-                if app.selected == 0 {
+                if panel == 0 {
                     let max = engine.input_devices().len();
-                    if app.audio_prefs_input_selected < max.saturating_sub(1) {
-                        app.audio_prefs_input_selected += 1;
+                    if input_sel < max.saturating_sub(1) {
+                        set_prefs(app, panel, input_sel + 1, output_sel);
                     }
-                } else if app.selected == 1 {
+                } else if panel == 1 {
                     let max = engine.output_devices().len();
-                    if app.audio_prefs_output_selected < max.saturating_sub(1) {
-                        app.audio_prefs_output_selected += 1;
+                    if output_sel < max.saturating_sub(1) {
+                        set_prefs(app, panel, input_sel, output_sel + 1);
                     }
                 }
             }
             KeyCode::Enter => {
-                if app.selected == 0 {
+                if panel == 0 {
                     if let Some(device) = engine
                         .input_devices()
-                        .get(app.audio_prefs_input_selected)
+                        .get(input_sel)
                         .cloned()
                     {
                         engine.set_input_device(device);
                     }
-                } else if app.selected == 1 {
+                } else if panel == 1 {
                     if let Some(device) = engine
                         .output_devices()
-                        .get(app.audio_prefs_output_selected)
+                        .get(output_sel)
                         .cloned()
                     {
                         engine.set_output_device(device);
@@ -155,14 +176,14 @@ impl ScreenTrait for AudioPreferencesScreen {
                 }
             }
             KeyCode::Tab => {
-                app.selected = if app.selected == 0 { 1 } else { 0 };
+                let new_panel = if panel == 0 { 1 } else { 0 };
+                set_prefs(app, new_panel, input_sel, output_sel);
             }
             KeyCode::Char('r') | KeyCode::Char('R') => {
                 engine.refresh_devices();
             }
             KeyCode::Esc => {
-                app.screen = Screen::MainMenu;
-                app.selected = 0;
+                app.screen = Screen::MainMenu { selected: 0 };
             }
             _ => {}
         }

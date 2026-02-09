@@ -89,7 +89,7 @@ impl AudioEngine {
                 self.selected_input = self
                     .input_devices
                     .iter()
-                    .find(|name| name.contains("Micrófono de MacBook Pro"))
+                    .find(|name| name.contains(DEFAULT_INPUT_DEVICE_NAME))
                     .cloned()
                     .or_else(|| self.input_devices.first().cloned());
             }
@@ -99,7 +99,7 @@ impl AudioEngine {
                 self.selected_output = self
                     .output_devices
                     .iter()
-                    .find(|name| name.contains("Bocinas de MacBook Pro"))
+                    .find(|name| name.contains(DEFAULT_OUTPUT_DEVICE_NAME))
                     .cloned()
                     .or_else(|| self.output_devices.first().cloned());
             }

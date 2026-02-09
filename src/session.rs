@@ -1,5 +1,5 @@
 use crate::audio_engine::AudioEngine;
-use crate::track::{Track, LATENCY_MS};
+use crate::track::{update_monitor_buffer, Track, LATENCY_MS};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{BufferSize, Stream};
 use ringbuf::{traits::Producer, HeapProd};
@@ -119,14 +119,13 @@ impl Session {
 
     pub fn start_playback(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let playhead_pos = self.transport.playhead_position;
-        let sample_rate = self.sample_rate;
 
         // Start playback on all eligible tracks (don't let one failure stop others)
         let mut any_started = false;
         for track in &mut self.tracks {
             if !track.muted
                 && !track.clips.is_empty()
-                && track.play_from(playhead_pos, sample_rate).is_ok()
+                && track.play_from(playhead_pos).is_ok()
                 && track.is_playing_track()
             {
                 any_started = true;
@@ -153,7 +152,7 @@ impl Session {
     /// Start recording on all armed tracks using a single shared input stream.
     /// Returns the number of tracks that started recording.
     pub fn start_recording(&mut self) -> Result<usize, Box<dyn std::error::Error>> {
-        let armed_count = self.tracks.iter().filter(|t| t.armed).count();
+        let armed_count = self.tracks.iter().filter(|t| t.is_armed()).count();
         if armed_count == 0 {
             return Ok(0);
         }
@@ -170,7 +169,7 @@ impl Session {
 
         // Prepare all armed tracks (sets up buffers, waveform threads, state)
         for track in &mut self.tracks {
-            if track.armed {
+            if track.is_armed() {
                 track.prepare_recording(playhead_pos, sample_rate, channels);
             }
         }
@@ -189,10 +188,7 @@ impl Session {
         // Build ONE input stream that fans data to ALL recording tracks (lock-free)
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             for mon in &mon_buffers {
-                if let Ok(mut buffer) = mon.try_lock() {
-                    buffer.truncate(0);
-                    buffer.extend_from_slice(data);
-                }
+                update_monitor_buffer(mon, data);
             }
             for prod in &mut rec_producers {
                 prod.push_slice(data);
@@ -218,14 +214,13 @@ impl Session {
     /// Start playback on non-recording tracks so the user hears them while recording (overdub).
     pub fn start_overdub_playback(&mut self) {
         let playhead_pos = self.transport.playhead_position;
-        let sample_rate = self.sample_rate;
 
         let mut any_started = false;
         for track in &mut self.tracks {
             if track.state != crate::track::TrackState::Recording
                 && !track.muted
                 && !track.clips.is_empty()
-                && track.play_from(playhead_pos, sample_rate).is_ok()
+                && track.play_from(playhead_pos).is_ok()
                 && track.is_playing_track()
             {
                 any_started = true;
@@ -260,7 +255,7 @@ impl Session {
                 if track.clips.is_empty() || track.muted {
                     true
                 } else {
-                    track.is_playback_finished()
+                    !track.is_playing_track()
                 }
             });
 

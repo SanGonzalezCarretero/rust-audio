@@ -15,18 +15,23 @@ mod layout_config {
     pub const SELECTED_FG: Color = Color::Black;
     pub const SELECTED_BG: Color = Color::Green;
     pub const DEFAULT_FG: Color = Color::White;
-    pub const MENU_ITEMS: &[&str] = &["Select Effects", "Daw", "Audio Preferences", "Quit"];
+    pub const MENU_ITEMS: &[&str] = &["Daw", "Audio Preferences", "Quit"];
 }
 
 pub struct MainMenuScreen;
 
 impl ScreenTrait for MainMenuScreen {
     fn render(&self, f: &mut Frame, app: &App, area: Rect) {
+        let selected = match app.screen {
+            Screen::MainMenu { selected } => selected,
+            _ => 0,
+        };
+
         let list_items: Vec<ListItem> = layout_config::MENU_ITEMS
             .iter()
             .enumerate()
             .map(|(i, item)| {
-                let style = if i == app.selected {
+                let style = if i == selected {
                     Style::default()
                         .fg(layout_config::SELECTED_FG)
                         .bg(layout_config::SELECTED_BG)
@@ -50,32 +55,31 @@ impl ScreenTrait for MainMenuScreen {
         app: &mut App,
         key: KeyCode,
     ) -> Result<bool, Box<dyn std::error::Error>> {
+        let selected = match app.screen {
+            Screen::MainMenu { selected } => selected,
+            _ => 0,
+        };
+
         match key {
             KeyCode::Up => {
-                if app.selected > 0 {
-                    app.selected -= 1;
+                if selected > 0 {
+                    app.screen = Screen::MainMenu { selected: selected - 1 };
                 }
             }
             KeyCode::Down => {
-                if app.selected < layout_config::MENU_ITEMS.len() - 1 {
-                    app.selected += 1;
+                if selected < layout_config::MENU_ITEMS.len() - 1 {
+                    app.screen = Screen::MainMenu { selected: selected + 1 };
                 }
             }
             KeyCode::Enter => {
-                match app.selected {
+                match selected {
                     0 => {
-                        app.screen = Screen::Effects;
-                        app.selected = 0;
+                        app.screen = Screen::Daw { selected_track: 0 };
                     }
                     1 => {
-                        app.screen = Screen::Daw;
-                        app.selected = 0;
+                        app.screen = Screen::AudioPreferences { selected_panel: 0, input_selected: 0, output_selected: 0 };
                     }
-                    2 => {
-                        app.screen = Screen::AudioPreferences;
-                        app.selected = 0;
-                    }
-                    3 => return Ok(true), // Quit
+                    2 => return Ok(true), // Quit
                     _ => {}
                 }
             }
