@@ -129,6 +129,14 @@ impl WavFile {
         bytes
     }
 
+    pub fn sample_count(&self) -> usize {
+        let bytes_per_sample = (self.header.bits_per_sample / 8) as usize;
+        if bytes_per_sample == 0 {
+            return 0;
+        }
+        self.audio_data.len() / bytes_per_sample
+    }
+
     pub fn to_f64_samples(&self) -> Vec<f64> {
         let mut samples = Vec::with_capacity(self.audio_data.len() / 2);
 

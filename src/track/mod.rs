@@ -141,7 +141,7 @@ impl Track {
     pub fn clips_end(&self) -> u64 {
         self.clips
             .iter()
-            .map(|clip| clip.starts_at + clip.wav_data.to_f64_samples().len() as u64)
+            .map(|clip| clip.starts_at + clip.wav_data.sample_count() as u64)
             .max()
             .unwrap_or(0)
     }
