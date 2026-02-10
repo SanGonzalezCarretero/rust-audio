@@ -74,11 +74,30 @@ impl WavFile {
         header.block_align = read_u16(&mut cursor)?;
         header.bits_per_sample = read_u16(&mut cursor)?;
 
+        // Validate header
+        if header.chunk_id != *b"RIFF" || header.format != *b"WAVE" {
+            return Err("Not a valid WAV file".into());
+        }
+        if header.audio_format != 1 {
+            return Err(format!(
+                "Unsupported audio format: {} (only PCM is supported)",
+                header.audio_format
+            )
+            .into());
+        }
+        if header.bits_per_sample != 16 {
+            return Err(format!(
+                "Unsupported bits per sample: {} (only 16-bit is supported)",
+                header.bits_per_sample
+            )
+            .into());
+        }
+
         // Search for the data chunk
-        let mut data_chunk_found = false;
+        let mut data_chunk_size: u32 = 0;
         let mut position = cursor.position() as usize;
 
-        while position + 8 < bytes.len() {
+        while position + 8 <= bytes.len() {
             let chunk_id = &bytes[position..position + 4];
             let chunk_size = u32::from_le_bytes([
                 bytes[position + 4],
@@ -89,7 +108,7 @@ impl WavFile {
 
             if chunk_id == b"data" {
                 position += 8; // Skip "data" + size
-                data_chunk_found = true;
+                data_chunk_size = chunk_size;
                 break;
             }
 
@@ -97,11 +116,12 @@ impl WavFile {
             position += 8 + chunk_size as usize;
         }
 
-        if !data_chunk_found {
+        if data_chunk_size == 0 {
             return Err("Data chunk not found".into());
         }
 
-        let audio_data = bytes[position..].to_vec();
+        let data_end = (position + data_chunk_size as usize).min(bytes.len());
+        let audio_data = bytes[position..data_end].to_vec();
 
         Ok(WavFile { header, audio_data })
     }
@@ -140,7 +160,7 @@ impl WavFile {
         self.audio_data.len() / bytes_per_sample
     }
 
-    pub fn to_f64_samples(&self) -> Vec<f64> {
+    pub fn to_f32_samples(&self) -> Vec<f32> {
         let mut samples = Vec::with_capacity(self.audio_data.len() / 2);
 
         for i in (0..self.audio_data.len()).step_by(2) {
@@ -149,25 +169,32 @@ impl WavFile {
             }
 
             let sample = i16::from_le_bytes([self.audio_data[i], self.audio_data[i + 1]]);
-            // Normalize to -1.0 to 1.0 range
-            samples.push(sample as f64 / i16::MAX as f64);
+            samples.push(sample as f32 / 32768.0);
         }
 
         samples
     }
 
-    pub fn from_f64_samples(&mut self, samples: &[f64]) {
+    pub fn from_f32_samples(&mut self, samples: &[f32]) {
         let mut new_audio_data = Vec::with_capacity(samples.len() * 2);
 
         for &sample in samples {
-            // Clamp to prevent distortion, then scale back to i16 range
             let clamped = sample.clamp(-1.0, 1.0);
-            let sample_i16 = (clamped * i16::MAX as f64).round() as i16;
+            let sample_i16 = (clamped * 32768.0).clamp(-32768.0, 32767.0) as i16;
             new_audio_data.extend_from_slice(&sample_i16.to_le_bytes());
         }
 
         self.audio_data = new_audio_data;
         self.resize();
+    }
+
+    pub fn to_f64_samples(&self) -> Vec<f64> {
+        self.to_f32_samples().iter().map(|&s| s as f64).collect()
+    }
+
+    pub fn from_f64_samples(&mut self, samples: &[f64]) {
+        let f32_samples: Vec<f32> = samples.iter().map(|&s| s as f32).collect();
+        self.from_f32_samples(&f32_samples);
     }
 
     fn resize(&mut self) {
