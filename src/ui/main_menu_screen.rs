@@ -107,6 +107,8 @@ impl ScreenTrait for MainMenuScreen {
         app: &mut App,
         key: KeyCode,
     ) -> Result<bool, Box<dyn std::error::Error>> {
+        let projects_dir = project::projects_dir();
+
         match &mut app.screen {
             Screen::NewProject { name } => match key {
                 KeyCode::Char(c) => {
@@ -123,8 +125,6 @@ impl ScreenTrait for MainMenuScreen {
                         app.status = "Project name cannot be empty".to_string();
                         return Ok(false);
                     }
-
-                    let projects_dir = project::projects_dir();
 
                     if project::is_inside_project(&projects_dir) {
                         app.status =
@@ -170,7 +170,6 @@ impl ScreenTrait for MainMenuScreen {
                 KeyCode::Enter => {
                     if *selected < projects.len() {
                         let project_name = projects[*selected].clone();
-                        let projects_dir = project::projects_dir();
                         let project_dir = projects_dir.join(&project_name);
 
                         match project::load_project(&project_dir) {
@@ -211,7 +210,6 @@ impl ScreenTrait for MainMenuScreen {
                             };
                         }
                         "Open Project" => {
-                            let projects_dir = project::projects_dir();
                             let projects = project::list_projects(&projects_dir);
                             if !projects.is_empty() {
                                 app.screen = Screen::OpenProject {
