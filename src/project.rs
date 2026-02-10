@@ -179,6 +179,10 @@ pub fn load_project(project_dir: &Path) -> Result<Session, Box<dyn std::error::E
     Ok(session)
 }
 
+pub fn projects_dir() -> std::path::PathBuf {
+    std::env::current_dir().unwrap_or_default().join("projects")
+}
+
 pub fn is_inside_project(dir: &Path) -> bool {
     let mut current = Some(dir);
     while let Some(d) = current {
