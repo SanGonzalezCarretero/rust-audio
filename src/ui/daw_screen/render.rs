@@ -12,9 +12,9 @@ use super::layout_config;
 use crate::ui::{App, Screen};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
-    let selected_track_idx = match app.screen {
-        Screen::Daw { selected_track } => selected_track,
-        _ => 0,
+    let (selected_track_idx, scroll_offset) = match app.screen {
+        Screen::Daw { selected_track, scroll_offset } => (selected_track, scroll_offset),
+        _ => (0, 0),
     };
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -127,17 +127,19 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         };
 
         let timeline_samples = sample_rate as u64 * layout_config::TIMELINE_SECONDS;
+        let view_start = scroll_offset as f64;
+        let view_end = (scroll_offset + timeline_samples) as f64;
 
         let canvas = Canvas::default()
             .block(block)
-            .x_bounds([0.0, timeline_samples as f64])
+            .x_bounds([view_start, view_end])
             .y_bounds([-1.0, 1.0])
             .paint(move |ctx| {
                 // Center line (timeline axis)
                 ctx.draw(&Line {
-                    x1: 0.0,
+                    x1: view_start,
                     y1: 0.0,
-                    x2: timeline_samples as f64,
+                    x2: view_end,
                     y2: 0.0,
                     color: Color::DarkGray,
                 });

@@ -32,6 +32,23 @@ impl AppEventHandler {
     fn update_background_tasks(app: &mut App) {
         // Check if playback has finished and reset transport state
         app.session.check_playback_status();
+
+        // Auto-scroll timeline to follow playhead during playback/recording
+        if app.session.transport.is_playing() {
+            if let Screen::Daw {
+                ref mut scroll_offset,
+                ..
+            } = app.screen
+            {
+                let timeline_samples = app.session.sample_rate as u64
+                    * super::daw_screen::layout_config::TIMELINE_SECONDS;
+                let playhead = app.session.transport.playhead_position;
+
+                if playhead >= *scroll_offset + timeline_samples {
+                    *scroll_offset = playhead;
+                }
+            }
+        }
     }
 
     fn poll_for_event() -> Result<bool, Box<dyn std::error::Error>> {

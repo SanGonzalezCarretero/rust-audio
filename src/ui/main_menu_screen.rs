@@ -152,7 +152,7 @@ impl ScreenTrait for MainMenuScreen {
 
                     app.session = session;
                     app.project_dir = Some(project_dir);
-                    app.screen = Screen::Daw { selected_track: 0 };
+                    app.screen = Screen::Daw { selected_track: 0, scroll_offset: 0 };
                     app.status = format!("Project '{}' created", project_name);
                 }
                 _ => {}
@@ -178,7 +178,7 @@ impl ScreenTrait for MainMenuScreen {
                             Ok(session) => {
                                 app.session = session;
                                 app.project_dir = Some(project_dir);
-                                app.screen = Screen::Daw { selected_track: 0 };
+                                app.screen = Screen::Daw { selected_track: 0, scroll_offset: 0 };
                                 app.status = format!("Project '{}' loaded", project_name);
                             }
                             Err(e) => {
