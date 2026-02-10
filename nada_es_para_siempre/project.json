@@ -1,0 +1,32 @@
+{
+  "name": "Nada es para siempre",
+  "sample_rate": 44100,
+  "tracks": [
+    {
+      "name": "Track 2",
+      "volume": 1.0,
+      "muted": false,
+      "clips": [
+        {
+          "id": "19c452e54f5755c65cc",
+          "file": "clips/19c452e54f5755c65cc.wav",
+          "starts_at": 0
+        }
+      ],
+      "fx_chain": []
+    },
+    {
+      "name": "Track 2",
+      "volume": 1.0,
+      "muted": false,
+      "clips": [
+        {
+          "id": "19c452f07b55bf858a7",
+          "file": "clips/19c452f07b55bf858a7.wav",
+          "starts_at": 0
+        }
+      ],
+      "fx_chain": []
+    }
+  ]
+}

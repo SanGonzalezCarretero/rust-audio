@@ -366,6 +366,11 @@ impl Session {
         Ok(())
     }
 
+    /// Render the entire master mix from the start as f32 samples.
+    pub fn render_full_mix(&self) -> Vec<f32> {
+        self.render_master_buffer(0)
+    }
+
     // --- Internal helpers ---
 
     /// Pre-render all non-muted tracks and sum into a mono buffer.

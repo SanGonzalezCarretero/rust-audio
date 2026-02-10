@@ -178,7 +178,38 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
         }
 
         KeyCode::Char('x') => {
-            app.status = "Export mixed audio".to_string();
+            let samples = app.session.render_full_mix();
+            if samples.is_empty() {
+                app.status = "Nothing to export".to_string();
+            } else {
+                let mut wav = crate::wav::WavFile::new(app.session.sample_rate, 1);
+                let f64_samples: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
+                wav.from_f64_samples(&f64_samples);
+                let dir = app
+                    .project_dir
+                    .clone()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."));
+                let name = &app.session.name;
+                let path = {
+                    let base = dir.join(format!("{}_mix.wav", name));
+                    if !base.exists() {
+                        base
+                    } else {
+                        let mut n = 1u32;
+                        loop {
+                            let p = dir.join(format!("{}_mix_{}.wav", name, n));
+                            if !p.exists() {
+                                break p;
+                            }
+                            n += 1;
+                        }
+                    }
+                };
+                match wav.save_to_file(&path) {
+                    Ok(()) => app.status = format!("Exported to {}", path.display()),
+                    Err(e) => app.status = format!("Export error: {}", e),
+                }
+            }
         }
 
         KeyCode::Char('n') => {
