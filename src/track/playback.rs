@@ -8,6 +8,6 @@ impl Track {
             return Vec::new();
         }
         let (mixed, _) = self.mix_clips(from_sample);
-        mixed.iter().map(|&s| (s * self.volume) as f32).collect()
+        mixed.iter().map(|&s| s * self.volume as f32).collect()
     }
 }

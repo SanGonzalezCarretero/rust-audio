@@ -286,8 +286,7 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
                 app.status = "Nothing to export".to_string();
             } else {
                 let mut wav = crate::wav::WavFile::new(app.session.sample_rate, 1);
-                let f64_samples: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
-                wav.from_f64_samples(&f64_samples);
+                wav.from_f32_samples(&samples);
                 let dir = app
                     .project_dir
                     .clone()

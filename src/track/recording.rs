@@ -50,7 +50,7 @@ impl Track {
     /// computes waveform peaks, and returns all accumulated samples on exit.
     fn waveform_thread(
         mut consumer: HeapCons<f32>,
-        waveform: Arc<RwLock<Vec<(f64, f64)>>>,
+        waveform: Arc<RwLock<Vec<(f32, f32)>>>,
         should_stop: Arc<AtomicBool>,
     ) -> Vec<f32> {
         const UPDATE_INTERVAL_MS: u64 = 50;
@@ -77,10 +77,8 @@ impl Track {
                 let process_up_to =
                     unprocessed_offset + complete_chunks * RECORDING_WAVEFORM_CHUNK_SIZE;
                 let new_samples = &all_samples[unprocessed_offset..process_up_to];
-                let samples_f64: Vec<f64> = new_samples.iter().map(|&s| s as f64).collect();
-
                 let new_peaks =
-                    downsample_bipolar(&samples_f64, RECORDING_WAVEFORM_CHUNK_SIZE, true);
+                    downsample_bipolar(new_samples, RECORDING_WAVEFORM_CHUNK_SIZE, true);
                 unprocessed_offset = process_up_to;
 
                 if let Ok(mut wf) = waveform.write() {
@@ -135,9 +133,8 @@ impl Track {
             let channels = self.recording_channels.unwrap_or(1);
             let sample_rate = self.recording_sample_rate.unwrap_or(48000);
 
-            let samples_f64: Vec<f64> = samples.iter().map(|&s| s as f64).collect();
             let mut wav = WavFile::new(sample_rate, channels);
-            wav.from_f64_samples(&samples_f64);
+            wav.from_f32_samples(&samples);
 
             self.clips.push(Clip {
                 id: generate_clip_id(&self.name),
@@ -173,7 +170,7 @@ impl Track {
     }
 
     /// Cached waveform for existing clips (persists during recording).
-    pub fn clips_waveform(&self) -> Option<&[(f64, f64)]> {
+    pub fn clips_waveform(&self) -> Option<&[(f32, f32)]> {
         if self.clips_waveform.is_empty() {
             None
         } else {
@@ -182,7 +179,7 @@ impl Track {
     }
 
     /// Live recording waveform from the background thread.
-    pub fn recording_waveform(&self) -> Option<Vec<(f64, f64)>> {
+    pub fn recording_waveform(&self) -> Option<Vec<(f32, f32)>> {
         if let Ok(waveform) = self.waveform.read() {
             if !waveform.is_empty() {
                 return Some(waveform.clone());
