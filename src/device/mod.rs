@@ -33,6 +33,7 @@ impl AudioDevice {
 pub trait DeviceProvider {
     fn list(&self) -> Result<Vec<String>, Box<dyn std::error::Error>>;
     fn default(&self) -> Result<AudioDevice, Box<dyn std::error::Error>>;
+    fn default_name(&self) -> Option<String>;
     fn by_index(&self, index: usize) -> Result<AudioDevice, Box<dyn std::error::Error>>;
     fn by_name(&self, name: &str) -> Result<AudioDevice, Box<dyn std::error::Error>>;
 }
@@ -55,6 +56,11 @@ macro_rules! impl_device_provider {
                     .ok_or($no_device_msg)?;
                 let config: StreamConfig = device.$config_fn()?.into();
                 Ok(AudioDevice::from_device_with_config(device, config))
+            }
+
+            fn default_name(&self) -> Option<String> {
+                let host = cpal::default_host();
+                host.$default_fn().and_then(|d| d.name().ok())
             }
 
             fn by_index(&self, index: usize) -> Result<AudioDevice, Box<dyn std::error::Error>> {
