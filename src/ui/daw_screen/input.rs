@@ -42,11 +42,10 @@ fn ensure_playhead_visible(app: &mut App) {
     let playhead = app.session.transport.playhead_position;
     let offset = scroll_offset(app);
 
-    if playhead < offset {
-        // Playhead is left of viewport — snap viewport to playhead
-        set_scroll_offset(app, playhead);
-    } else if playhead >= offset + timeline_samples {
-        // Playhead is right of viewport — advance viewport so playhead is at the left edge
+    let left_of_viewport = playhead < offset;
+    let right_of_viewport = playhead >= offset + timeline_samples;
+
+    if left_of_viewport || right_of_viewport {
         set_scroll_offset(app, playhead);
     }
 }
