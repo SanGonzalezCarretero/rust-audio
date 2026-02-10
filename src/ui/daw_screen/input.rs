@@ -4,7 +4,7 @@ use crossterm::event::KeyCode;
 
 fn selected_track(app: &App) -> usize {
     match app.screen {
-        Screen::Daw { selected_track } => selected_track,
+        Screen::Daw { selected_track, .. } => selected_track,
         _ => 0,
     }
 }
@@ -12,9 +12,42 @@ fn selected_track(app: &App) -> usize {
 fn set_selected_track(app: &mut App, value: usize) {
     if let Screen::Daw {
         ref mut selected_track,
+        ..
     } = app.screen
     {
         *selected_track = value;
+    }
+}
+
+fn scroll_offset(app: &App) -> u64 {
+    match app.screen {
+        Screen::Daw { scroll_offset, .. } => scroll_offset,
+        _ => 0,
+    }
+}
+
+fn set_scroll_offset(app: &mut App, value: u64) {
+    if let Screen::Daw {
+        ref mut scroll_offset,
+        ..
+    } = app.screen
+    {
+        *scroll_offset = value;
+    }
+}
+
+/// Auto-scroll the viewport so the playhead stays visible.
+fn ensure_playhead_visible(app: &mut App) {
+    let timeline_samples = app.session.sample_rate as u64 * layout_config::TIMELINE_SECONDS;
+    let playhead = app.session.transport.playhead_position;
+    let offset = scroll_offset(app);
+
+    if playhead < offset {
+        // Playhead is left of viewport — snap viewport to playhead
+        set_scroll_offset(app, playhead);
+    } else if playhead >= offset + timeline_samples {
+        // Playhead is right of viewport — advance viewport so playhead is at the left edge
+        set_scroll_offset(app, playhead);
     }
 }
 
@@ -44,6 +77,7 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
                 let delta = -(app.session.sample_rate as f64
                     * layout_config::PLAYHEAD_DELTA_SECONDS) as i64;
                 app.session.transport.move_playhead(delta);
+                ensure_playhead_visible(app);
                 let secs = app
                     .session
                     .transport
@@ -56,6 +90,7 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
                 let delta =
                     (app.session.sample_rate as f64 * layout_config::PLAYHEAD_DELTA_SECONDS) as i64;
                 app.session.transport.move_playhead(delta);
+                ensure_playhead_visible(app);
                 let secs = app
                     .session
                     .transport
@@ -66,8 +101,21 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
         KeyCode::Char('h') => {
             if !app.session.transport.is_playing() {
                 app.session.transport.reset_playhead();
+                set_scroll_offset(app, 0);
                 app.status = "Playhead reset to start".to_string();
             }
+        }
+
+        // Manual timeline scrolling
+        KeyCode::Char('[') => {
+            let scroll_step = app.session.sample_rate as u64 * layout_config::SCROLL_STEP_SECONDS;
+            let offset = scroll_offset(app);
+            set_scroll_offset(app, offset.saturating_sub(scroll_step));
+        }
+        KeyCode::Char(']') => {
+            let scroll_step = app.session.sample_rate as u64 * layout_config::SCROLL_STEP_SECONDS;
+            let offset = scroll_offset(app);
+            set_scroll_offset(app, offset + scroll_step);
         }
 
         // Global transport control

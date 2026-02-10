@@ -6,7 +6,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
 mod audio_preferences_screen;
-mod daw_screen;
+pub(crate) mod daw_screen;
 mod debug_logger;
 mod event_handler;
 mod main_menu_screen;
@@ -28,6 +28,7 @@ pub enum Screen {
     },
     Daw {
         selected_track: usize,
+        scroll_offset: u64,
     },
     AudioPreferences {
         selected_panel: usize,
