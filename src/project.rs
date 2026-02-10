@@ -1,3 +1,4 @@
+use crate::audio_engine::AudioEngine;
 use crate::effects::EffectType;
 use crate::session::Session;
 use crate::track::Track;
@@ -12,6 +13,14 @@ pub struct ProjectManifest {
     pub name: String,
     pub sample_rate: u32,
     pub tracks: Vec<TrackManifest>,
+    #[serde(default)]
+    pub audio_preferences: Option<AudioPreferencesManifest>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AudioPreferencesManifest {
+    pub input_device: Option<String>,
+    pub output_device: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,10 +94,20 @@ pub fn save_project(
         });
     }
 
+    let audio_preferences = {
+        let engine = AudioEngine::global();
+        let engine = engine.lock().unwrap();
+        AudioPreferencesManifest {
+            input_device: engine.selected_input().map(String::from),
+            output_device: engine.selected_output().map(String::from),
+        }
+    };
+
     let manifest = ProjectManifest {
         name: session.name.clone(),
         sample_rate: session.sample_rate,
         tracks: track_manifests,
+        audio_preferences: Some(audio_preferences),
     };
 
     let manifest_path = project_dir.join("project.json");
@@ -141,6 +160,17 @@ pub fn load_project(project_dir: &Path) -> Result<Session, Box<dyn std::error::E
         track.cache_waveform();
 
         tracks.push(track);
+    }
+
+    if let Some(prefs) = manifest.audio_preferences {
+        let engine = AudioEngine::global();
+        let mut engine = engine.lock().unwrap();
+        if let Some(input) = prefs.input_device {
+            engine.set_input_device(input);
+        }
+        if let Some(output) = prefs.output_device {
+            engine.set_output_device(output);
+        }
     }
 
     let mut session = Session::new(manifest.name, manifest.sample_rate);
