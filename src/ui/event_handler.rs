@@ -1,4 +1,4 @@
-use crossterm::event::{self, Event, KeyCode};
+use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use std::time::Duration;
 
 use super::audio_preferences_screen::AudioPreferencesScreen;
@@ -6,6 +6,7 @@ use super::daw_screen::DawScreen;
 use super::main_menu_screen::MainMenuScreen;
 use super::screen_trait::ScreenTrait;
 use super::{App, Screen};
+use crate::project;
 
 mod event_config {
     use crossterm::event::KeyCode;
@@ -40,15 +41,32 @@ impl AppEventHandler {
 
     fn handle_user_input(app: &mut App) -> Result<bool, Box<dyn std::error::Error>> {
         if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Char(c) if c == event_config::QUIT_KEY => return Ok(true),
-                code if code == event_config::BACK_KEY => {
-                    Self::handle_back_key(app);
+            // Ctrl+S: save project (only in DAW screen)
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                && key.code == KeyCode::Char('s')
+            {
+                if matches!(app.screen, Screen::Daw { .. }) {
+                    Self::save_project(app);
                 }
-                _ => {
-                    return Self::route_to_screen_handler(app, key.code);
+                return Ok(false);
+            }
+
+            // On text-input screens (NewProject), don't intercept 'q' or Esc globally;
+            // let the screen handler deal with them.
+            let is_text_input = matches!(app.screen, Screen::NewProject { .. });
+
+            if !is_text_input {
+                match key.code {
+                    KeyCode::Char(c) if c == event_config::QUIT_KEY => return Ok(true),
+                    code if code == event_config::BACK_KEY => {
+                        Self::handle_back_key(app);
+                        return Ok(false);
+                    }
+                    _ => {}
                 }
             }
+
+            return Self::route_to_screen_handler(app, key.code);
         }
         Ok(false)
     }
@@ -57,12 +75,25 @@ impl AppEventHandler {
         app.screen = Screen::MainMenu { selected: 0 };
     }
 
+    fn save_project(app: &mut App) {
+        if let Some(ref dir) = app.project_dir {
+            match project::save_project(&app.session, dir) {
+                Ok(()) => app.status = "Project saved".to_string(),
+                Err(e) => app.status = format!("Save error: {}", e),
+            }
+        } else {
+            app.status = "No project directory set".to_string();
+        }
+    }
+
     fn route_to_screen_handler(
         app: &mut App,
         key: KeyCode,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         match app.screen {
             Screen::MainMenu { .. } => MainMenuScreen.handle_input(app, key),
+            Screen::NewProject { .. } => MainMenuScreen.handle_input(app, key),
+            Screen::OpenProject { .. } => MainMenuScreen.handle_input(app, key),
             Screen::Daw { .. } => DawScreen.handle_input(app, key),
             Screen::AudioPreferences { .. } => AudioPreferencesScreen.handle_input(app, key),
         }

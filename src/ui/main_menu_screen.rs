@@ -1,12 +1,16 @@
 use super::screen_trait::ScreenTrait;
 use super::{App, Screen};
+use crate::audio_engine::AudioEngine;
+use crate::project;
+use crate::session::Session;
 use crossterm::event::KeyCode;
 use ratatui::{
     layout::Rect,
     style::Style,
-    widgets::{Block, Borders, List, ListItem},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
+use std::env;
 
 mod layout_config {
     use ratatui::style::Color;
@@ -15,39 +19,88 @@ mod layout_config {
     pub const SELECTED_FG: Color = Color::Black;
     pub const SELECTED_BG: Color = Color::Green;
     pub const DEFAULT_FG: Color = Color::White;
-    pub const MENU_ITEMS: &[&str] = &["Daw", "Audio Preferences", "Quit"];
+    pub const NEW_PROJECT_TITLE: &str = "New Project";
+    pub const OPEN_PROJECT_TITLE: &str = "Open Project";
 }
 
 pub struct MainMenuScreen;
 
+impl MainMenuScreen {
+    fn menu_items() -> Vec<&'static str> {
+        let cwd = env::current_dir().unwrap_or_default();
+        let has_projects = !project::list_projects(&cwd).is_empty();
+
+        let mut items = vec!["New Project"];
+        if has_projects {
+            items.push("Open Project");
+        }
+        items.push("Audio Preferences");
+        items.push("Quit");
+        items
+    }
+}
+
 impl ScreenTrait for MainMenuScreen {
     fn render(&self, f: &mut Frame, app: &App, area: Rect) {
-        let selected = match app.screen {
-            Screen::MainMenu { selected } => selected,
-            _ => 0,
-        };
+        match &app.screen {
+            Screen::NewProject { name } => {
+                let prompt = format!("Enter project name: {}_", name);
+                let paragraph = Paragraph::new(prompt).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(layout_config::NEW_PROJECT_TITLE),
+                );
+                f.render_widget(paragraph, area);
+            }
+            Screen::OpenProject { selected, projects } => {
+                let list_items: Vec<ListItem> = projects
+                    .iter()
+                    .enumerate()
+                    .map(|(i, name)| {
+                        let style = if i == *selected {
+                            Style::default()
+                                .fg(layout_config::SELECTED_FG)
+                                .bg(layout_config::SELECTED_BG)
+                        } else {
+                            Style::default().fg(layout_config::DEFAULT_FG)
+                        };
+                        ListItem::new(name.as_str()).style(style)
+                    })
+                    .collect();
 
-        let list_items: Vec<ListItem> = layout_config::MENU_ITEMS
-            .iter()
-            .enumerate()
-            .map(|(i, item)| {
-                let style = if i == selected {
-                    Style::default()
-                        .fg(layout_config::SELECTED_FG)
-                        .bg(layout_config::SELECTED_BG)
-                } else {
-                    Style::default().fg(layout_config::DEFAULT_FG)
-                };
-                ListItem::new(*item).style(style)
-            })
-            .collect();
+                let list = List::new(list_items).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(layout_config::OPEN_PROJECT_TITLE),
+                );
+                f.render_widget(list, area);
+            }
+            Screen::MainMenu { selected } => {
+                let items = Self::menu_items();
+                let list_items: Vec<ListItem> = items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, label)| {
+                        let style = if i == *selected {
+                            Style::default()
+                                .fg(layout_config::SELECTED_FG)
+                                .bg(layout_config::SELECTED_BG)
+                        } else {
+                            Style::default().fg(layout_config::DEFAULT_FG)
+                        };
+                        ListItem::new(*label).style(style)
+                    })
+                    .collect();
 
-        let list = List::new(list_items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(layout_config::MENU_TITLE),
-        );
-        f.render_widget(list, area);
+                let list = List::new(list_items).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(layout_config::MENU_TITLE),
+                );
+                f.render_widget(list, area);
+            }
+            _ => {}
+        }
     }
 
     fn handle_input(
@@ -55,36 +108,134 @@ impl ScreenTrait for MainMenuScreen {
         app: &mut App,
         key: KeyCode,
     ) -> Result<bool, Box<dyn std::error::Error>> {
-        let selected = match app.screen {
-            Screen::MainMenu { selected } => selected,
-            _ => 0,
-        };
+        match &mut app.screen {
+            Screen::NewProject { name } => match key {
+                KeyCode::Char(c) => {
+                    name.push(c);
+                }
+                KeyCode::Backspace => {
+                    name.pop();
+                }
+                KeyCode::Esc => {
+                    app.screen = Screen::MainMenu { selected: 0 };
+                }
+                KeyCode::Enter => {
+                    if name.is_empty() {
+                        app.status = "Project name cannot be empty".to_string();
+                        return Ok(false);
+                    }
 
-        match key {
-            KeyCode::Up => {
-                if selected > 0 {
-                    app.screen = Screen::MainMenu { selected: selected - 1 };
-                }
-            }
-            KeyCode::Down => {
-                if selected < layout_config::MENU_ITEMS.len() - 1 {
-                    app.screen = Screen::MainMenu { selected: selected + 1 };
-                }
-            }
-            KeyCode::Enter => {
-                match selected {
-                    0 => {
-                        app.screen = Screen::Daw { selected_track: 0 };
+                    let cwd = env::current_dir().unwrap_or_default();
+
+                    if project::is_inside_project(&cwd) {
+                        app.status =
+                            "Cannot create a project inside another project folder".to_string();
+                        return Ok(false);
                     }
-                    1 => {
-                        app.screen = Screen::AudioPreferences { selected_panel: 0, input_selected: 0, output_selected: 0 };
+
+                    let project_dir = cwd.join(&*name);
+
+                    if project_dir.join("project.json").exists() {
+                        app.status = format!("Project '{}' already exists", name);
+                        return Ok(false);
                     }
-                    2 => return Ok(true), // Quit
+
+                    let sample_rate = AudioEngine::get_input_device()
+                        .map(|d| d.sample_rate)
+                        .unwrap_or(48000);
+
+                    let project_name = name.clone();
+                    let mut session = Session::new(project_name.clone(), sample_rate);
+                    let _ = session.add_track("Track 1".to_string());
+
+                    project::save_project(&session, &project_dir)?;
+
+                    app.session = session;
+                    app.project_dir = Some(project_dir);
+                    app.screen = Screen::Daw { selected_track: 0 };
+                    app.status = format!("Project '{}' created", project_name);
+                }
+                _ => {}
+            },
+            Screen::OpenProject { selected, projects } => match key {
+                KeyCode::Up => {
+                    if *selected > 0 {
+                        *selected -= 1;
+                    }
+                }
+                KeyCode::Down => {
+                    if *selected < projects.len().saturating_sub(1) {
+                        *selected += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    if *selected < projects.len() {
+                        let project_name = projects[*selected].clone();
+                        let cwd = env::current_dir().unwrap_or_default();
+                        let project_dir = cwd.join(&project_name);
+
+                        match project::load_project(&project_dir) {
+                            Ok(session) => {
+                                app.session = session;
+                                app.project_dir = Some(project_dir);
+                                app.screen = Screen::Daw { selected_track: 0 };
+                                app.status = format!("Project '{}' loaded", project_name);
+                            }
+                            Err(e) => {
+                                app.status = format!("Failed to load project: {}", e);
+                            }
+                        }
+                    }
+                }
+                KeyCode::Esc => {
+                    app.screen = Screen::MainMenu { selected: 0 };
+                }
+                _ => {}
+            },
+            Screen::MainMenu { selected } => {
+                let items = Self::menu_items();
+                match key {
+                    KeyCode::Up => {
+                        if *selected > 0 {
+                            *selected -= 1;
+                        }
+                    }
+                    KeyCode::Down => {
+                        if *selected < items.len() - 1 {
+                            *selected += 1;
+                        }
+                    }
+                    KeyCode::Enter => match items[*selected] {
+                        "New Project" => {
+                            app.screen = Screen::NewProject {
+                                name: String::new(),
+                            };
+                        }
+                        "Open Project" => {
+                            let cwd = env::current_dir().unwrap_or_default();
+                            let projects = project::list_projects(&cwd);
+                            if !projects.is_empty() {
+                                app.screen = Screen::OpenProject {
+                                    selected: 0,
+                                    projects,
+                                };
+                            }
+                        }
+                        "Audio Preferences" => {
+                            app.screen = Screen::AudioPreferences {
+                                selected_panel: 0,
+                                input_selected: 0,
+                                output_selected: 0,
+                            };
+                        }
+                        "Quit" => return Ok(true),
+                        _ => {}
+                    },
                     _ => {}
                 }
             }
             _ => {}
         }
-        Ok(false) // Don't quit
+        Ok(false)
     }
 }

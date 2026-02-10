@@ -16,18 +16,36 @@ mod view;
 pub use debug_logger::DebugLogger;
 
 pub enum Screen {
-    MainMenu { selected: usize },
-    Daw { selected_track: usize },
-    AudioPreferences { selected_panel: usize, input_selected: usize, output_selected: usize },
+    MainMenu {
+        selected: usize,
+    },
+    NewProject {
+        name: String,
+    },
+    OpenProject {
+        selected: usize,
+        projects: Vec<String>,
+    },
+    Daw {
+        selected_track: usize,
+    },
+    AudioPreferences {
+        selected_panel: usize,
+        input_selected: usize,
+        output_selected: usize,
+    },
 }
 
 use crate::audio_engine::AudioEngine;
 use crate::session::Session;
+use std::path::PathBuf;
+
 pub struct App {
     pub screen: Screen,
     pub status: String,
     pub session: Session,
     pub debug_logger: DebugLogger,
+    pub project_dir: Option<PathBuf>,
 }
 
 impl App {
@@ -46,6 +64,7 @@ impl App {
             status: String::from("Ready"),
             session,
             debug_logger: DebugLogger::new(debug_mode),
+            project_dir: None,
         }
     }
 
