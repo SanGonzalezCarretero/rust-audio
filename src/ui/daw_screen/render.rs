@@ -12,9 +12,13 @@ use super::layout_config;
 use crate::ui::{App, Screen};
 
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
-    let (selected_track_idx, scroll_offset) = match app.screen {
-        Screen::Daw { selected_track, scroll_offset } => (selected_track, scroll_offset),
-        _ => (0, 0),
+    let (selected_track_idx, scroll_offset, selected_clip_idx) = match app.screen {
+        Screen::Daw {
+            selected_track,
+            scroll_offset,
+            selected_clip,
+        } => (selected_track, scroll_offset, selected_clip),
+        _ => (0, 0, None),
     };
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -119,12 +123,23 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let clips_end = track.clips_end();
         let clips_waveform_len = clips_waveform.as_ref().map(|w| w.len()).unwrap_or(0);
 
-        let rec_waveform = if is_recording { track.recording_waveform() } else { None };
+        let rec_waveform = if is_recording {
+            track.recording_waveform()
+        } else {
+            None
+        };
 
-        let clip_bounds: Vec<(f64, f64)> = track
+        // Clip bounds with selection state: (start, end, is_selected_clip)
+        let clip_bounds: Vec<(f64, f64, bool)> = track
             .clips
             .iter()
-            .map(|c| (c.starts_at as f64, (c.starts_at + c.wav_data.sample_count() as u64) as f64))
+            .enumerate()
+            .map(|(ci, c)| {
+                let start = c.starts_at as f64;
+                let end = (c.starts_at + c.wav_data.sample_count() as u64) as f64;
+                let sel = is_selected && selected_clip_idx == Some(ci);
+                (start, end, sel)
+            })
             .collect();
 
         let timeline_samples = sample_rate as u64 * layout_config::TIMELINE_SECONDS;
@@ -146,8 +161,12 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 });
 
                 // Draw clip boundaries (box: left, right, top, bottom)
-                for &(start, end) in &clip_bounds {
-                    let clip_color = Color::DarkGray;
+                for &(start, end, is_clip_selected) in &clip_bounds {
+                    let clip_color = if is_clip_selected {
+                        Color::Green
+                    } else {
+                        Color::DarkGray
+                    };
                     // Top and bottom
                     ctx.draw(&Line { x1: start, y1: 0.95, x2: end, y2: 0.95, color: clip_color });
                     ctx.draw(&Line { x1: start, y1: -0.95, x2: end, y2: -0.95, color: clip_color });
@@ -165,7 +184,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     };
                     for (j, &(min, max)) in waveform.iter().enumerate() {
                         let x = j as f64 * spp;
-                        if !clip_bounds.iter().any(|&(s, e)| x >= s && x <= e) {
+                        if !clip_bounds.iter().any(|&(s, e, _)| x >= s && x <= e) {
                             continue;
                         }
                         let y_min = (min * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0);

@@ -29,6 +29,7 @@ pub enum Screen {
     Daw {
         selected_track: usize,
         scroll_offset: u64,
+        selected_clip: Option<usize>,
     },
     AudioPreferences {
         selected_panel: usize,
