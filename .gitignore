@@ -1,5 +1,6 @@
 /target
 /projects
+config.json
 
 output.wav
 *.png

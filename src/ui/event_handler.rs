@@ -89,6 +89,11 @@ impl AppEventHandler {
     }
 
     fn handle_back_key(app: &mut App) {
+        if matches!(app.screen, Screen::AudioPreferences { .. }) {
+            let engine = crate::audio_engine::AudioEngine::global();
+            let engine = engine.lock().unwrap();
+            engine.save_config();
+        }
         app.screen = Screen::MainMenu { selected: 0 };
     }
 
