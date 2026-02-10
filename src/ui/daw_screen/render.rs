@@ -126,6 +126,12 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             track.clips_end()
         };
 
+        let clip_bounds: Vec<(f64, f64)> = track
+            .clips
+            .iter()
+            .map(|c| (c.starts_at as f64, (c.starts_at + c.wav_data.sample_count() as u64) as f64))
+            .collect();
+
         let timeline_samples = sample_rate as u64 * layout_config::TIMELINE_SECONDS;
         let view_start = scroll_offset as f64;
         let view_end = (scroll_offset + timeline_samples) as f64;
@@ -143,6 +149,17 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     y2: 0.0,
                     color: Color::DarkGray,
                 });
+
+                // Draw clip boundaries (box: left, right, top, bottom)
+                for &(start, end) in &clip_bounds {
+                    let clip_color = Color::DarkGray;
+                    // Top and bottom
+                    ctx.draw(&Line { x1: start, y1: 0.95, x2: end, y2: 0.95, color: clip_color });
+                    ctx.draw(&Line { x1: start, y1: -0.95, x2: end, y2: -0.95, color: clip_color });
+                    // Left and right
+                    ctx.draw(&Line { x1: start, y1: -0.95, x2: start, y2: 0.95, color: clip_color });
+                    ctx.draw(&Line { x1: end, y1: -0.95, x2: end, y2: 0.95, color: clip_color });
+                }
 
                 // Draw waveform if present
                 if let Some(ref waveform) = waveform {
@@ -168,7 +185,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                             y1: y_min,
                             x2: x,
                             y2: y_max,
-                            color: layout_config::DEFAULT_BORDER,
+                            color: Color::Green,
                         });
                     }
                 }
