@@ -35,10 +35,10 @@ pub(crate) mod layout_config {
             .collect()
     }
 
-    pub fn format_lane_title(lane_num: usize, volume: f64, status: &str) -> String {
+    pub fn format_lane_title(name: &str, volume: f64, status: &str) -> String {
         format!(
-            "Lane {} | Vol: {:.0}% | {}",
-            lane_num,
+            "{} | Vol: {:.0}% | {}",
+            name,
             volume * 100.0,
             status,
         )

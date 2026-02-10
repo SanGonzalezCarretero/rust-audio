@@ -4,7 +4,6 @@ mod recording;
 
 use crate::effects::EffectInstance;
 use crate::wav::WavFile;
-use rand::Rng;
 use ringbuf::HeapProd;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -27,13 +26,12 @@ pub struct Clip {
     pub starts_at: u64, // sample position on the timeline
 }
 
-pub fn generate_clip_id() -> String {
+pub fn generate_clip_id(track_name: &str) -> String {
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis();
-    let r: u32 = rand::thread_rng().gen();
-    format!("{:x}{:08x}", ts, r)
+        .as_secs();
+    format!("{}-{}", track_name, ts)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,8 +100,10 @@ pub struct Track {
     // Thread handles for background processing
     waveform_thread: WaveformThread,
 
-    // Waveform result (written by background thread, read by UI)
+    // Live recording waveform (written by background thread, read by UI)
     waveform: Arc<RwLock<Vec<(f64, f64)>>>,
+    // Cached waveform for existing clips (persists during recording)
+    clips_waveform: Vec<(f64, f64)>,
 }
 
 impl Default for Track {
@@ -123,6 +123,7 @@ impl Default for Track {
             recording_sample_rate: None,
             waveform_thread: WaveformThread::new(),
             waveform: Arc::new(RwLock::new(Vec::new())),
+            clips_waveform: Vec::new(),
         }
     }
 }
