@@ -115,16 +115,11 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let is_recording = track.state == crate::track::TrackState::Recording;
         let rec_start_pos = track.recording_start_position;
 
-        let waveform = track.waveform();
-        let waveform_len = waveform.as_ref().map(|w| w.len()).unwrap_or(0);
+        let clips_waveform: Option<Vec<(f64, f64)>> = track.clips_waveform().map(|w| w.to_vec());
+        let clips_end = track.clips_end();
+        let clips_waveform_len = clips_waveform.as_ref().map(|w| w.len()).unwrap_or(0);
 
-        // Calculate furthest_end based on track state
-        let furthest_end = if is_recording {
-            // Each waveform point = exactly RECORDING_WAVEFORM_CHUNK_SIZE samples
-            rec_start_pos + waveform_len as u64 * crate::track::RECORDING_WAVEFORM_CHUNK_SIZE as u64
-        } else {
-            track.clips_end()
-        };
+        let rec_waveform = if is_recording { track.recording_waveform() } else { None };
 
         let clip_bounds: Vec<(f64, f64)> = track
             .clips
@@ -161,31 +156,37 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     ctx.draw(&Line { x1: end, y1: -0.95, x2: end, y2: 0.95, color: clip_color });
                 }
 
-                // Draw waveform if present
-                if let Some(ref waveform) = waveform {
-                    let (origin, samples_per_point) = if is_recording {
-                        let chunk = crate::track::RECORDING_WAVEFORM_CHUNK_SIZE as f64;
-                        (rec_start_pos as f64, chunk)
+                // Draw existing clips waveform
+                if let Some(ref waveform) = clips_waveform {
+                    let spp = if clips_waveform_len > 0 {
+                        clips_end as f64 / clips_waveform_len as f64
                     } else {
-                        let spp = if waveform_len > 0 {
-                            furthest_end as f64 / waveform_len as f64
-                        } else {
-                            1.0
-                        };
-                        (0.0, spp)
+                        1.0
                     };
-
                     for (j, &(min, max)) in waveform.iter().enumerate() {
-                        let x = origin + j as f64 * samples_per_point;
+                        let x = j as f64 * spp;
+                        if !clip_bounds.iter().any(|&(s, e)| x >= s && x <= e) {
+                            continue;
+                        }
                         let y_min = (min * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0);
                         let y_max = (max * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0);
-
                         ctx.draw(&Line {
-                            x1: x,
-                            y1: y_min,
-                            x2: x,
-                            y2: y_max,
+                            x1: x, y1: y_min, x2: x, y2: y_max,
                             color: Color::Green,
+                        });
+                    }
+                }
+
+                // Draw live recording waveform
+                if let Some(ref waveform) = rec_waveform {
+                    let chunk = crate::track::RECORDING_WAVEFORM_CHUNK_SIZE as f64;
+                    for (j, &(min, max)) in waveform.iter().enumerate() {
+                        let x = rec_start_pos as f64 + j as f64 * chunk;
+                        let y_min = (min * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0);
+                        let y_max = (max * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0);
+                        ctx.draw(&Line {
+                            x1: x, y1: y_min, x2: x, y2: y_max,
+                            color: Color::LightRed,
                         });
                     }
                 }

@@ -156,33 +156,33 @@ impl Track {
 
     /// Recompute the waveform cache from all clips.
     /// Called once after recording stops, or after loading clips from a project.
-    pub(crate) fn cache_waveform(&self) {
+    pub(crate) fn cache_waveform(&mut self) {
         if self.clips.is_empty() {
-            if let Ok(mut wf) = self.waveform.write() {
-                wf.clear();
-            }
+            self.clips_waveform.clear();
             return;
         }
 
         let (mixed, _) = self.mix_clips(0);
         if mixed.is_empty() {
-            if let Ok(mut wf) = self.waveform.write() {
-                wf.clear();
-            }
+            self.clips_waveform.clear();
             return;
         }
 
         let chunk_size = (mixed.len() / WAVEFORM_MAX_POINTS).max(1);
-        let peaks = downsample_bipolar(&mixed, chunk_size, false);
-        if let Ok(mut wf) = self.waveform.write() {
-            *wf = peaks;
+        self.clips_waveform = downsample_bipolar(&mixed, chunk_size, false);
+    }
+
+    /// Cached waveform for existing clips (persists during recording).
+    pub fn clips_waveform(&self) -> Option<&[(f64, f64)]> {
+        if self.clips_waveform.is_empty() {
+            None
+        } else {
+            Some(&self.clips_waveform)
         }
     }
 
-    /// Read cached waveform data. During recording, the background thread
-    /// populates the cache. For non-recording tracks, the cache is populated
-    /// once when recording stops (via cache_waveform).
-    pub fn waveform(&self) -> Option<Vec<(f64, f64)>> {
+    /// Live recording waveform from the background thread.
+    pub fn recording_waveform(&self) -> Option<Vec<(f64, f64)>> {
         if let Ok(waveform) = self.waveform.read() {
             if !waveform.is_empty() {
                 return Some(waveform.clone());

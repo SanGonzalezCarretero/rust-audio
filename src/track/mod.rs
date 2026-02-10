@@ -100,8 +100,10 @@ pub struct Track {
     // Thread handles for background processing
     waveform_thread: WaveformThread,
 
-    // Waveform result (written by background thread, read by UI)
+    // Live recording waveform (written by background thread, read by UI)
     waveform: Arc<RwLock<Vec<(f64, f64)>>>,
+    // Cached waveform for existing clips (persists during recording)
+    clips_waveform: Vec<(f64, f64)>,
 }
 
 impl Default for Track {
@@ -121,6 +123,7 @@ impl Default for Track {
             recording_sample_rate: None,
             waveform_thread: WaveformThread::new(),
             waveform: Arc::new(RwLock::new(Vec::new())),
+            clips_waveform: Vec::new(),
         }
     }
 }
