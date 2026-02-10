@@ -10,7 +10,6 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
-use std::env;
 
 mod layout_config {
     use ratatui::style::Color;
@@ -27,8 +26,8 @@ pub struct MainMenuScreen;
 
 impl MainMenuScreen {
     fn menu_items() -> Vec<&'static str> {
-        let cwd = env::current_dir().unwrap_or_default();
-        let has_projects = !project::list_projects(&cwd).is_empty();
+        let projects_dir = project::projects_dir();
+        let has_projects = !project::list_projects(&projects_dir).is_empty();
 
         let mut items = vec!["New Project"];
         if has_projects {
@@ -125,15 +124,15 @@ impl ScreenTrait for MainMenuScreen {
                         return Ok(false);
                     }
 
-                    let cwd = env::current_dir().unwrap_or_default();
+                    let projects_dir = project::projects_dir();
 
-                    if project::is_inside_project(&cwd) {
+                    if project::is_inside_project(&projects_dir) {
                         app.status =
                             "Cannot create a project inside another project folder".to_string();
                         return Ok(false);
                     }
 
-                    let project_dir = cwd.join(&*name);
+                    let project_dir = projects_dir.join(&*name);
 
                     if project_dir.join("project.json").exists() {
                         app.status = format!("Project '{}' already exists", name);
@@ -171,8 +170,8 @@ impl ScreenTrait for MainMenuScreen {
                 KeyCode::Enter => {
                     if *selected < projects.len() {
                         let project_name = projects[*selected].clone();
-                        let cwd = env::current_dir().unwrap_or_default();
-                        let project_dir = cwd.join(&project_name);
+                        let projects_dir = project::projects_dir();
+                        let project_dir = projects_dir.join(&project_name);
 
                         match project::load_project(&project_dir) {
                             Ok(session) => {
@@ -212,8 +211,8 @@ impl ScreenTrait for MainMenuScreen {
                             };
                         }
                         "Open Project" => {
-                            let cwd = env::current_dir().unwrap_or_default();
-                            let projects = project::list_projects(&cwd);
+                            let projects_dir = project::projects_dir();
+                            let projects = project::list_projects(&projects_dir);
                             if !projects.is_empty() {
                                 app.screen = Screen::OpenProject {
                                     selected: 0,
