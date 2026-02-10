@@ -76,6 +76,17 @@ impl AppEventHandler {
                 match key.code {
                     KeyCode::Char(c) if c == event_config::QUIT_KEY => return Ok(true),
                     code if code == event_config::BACK_KEY => {
+                        // If a clip is selected in DAW, route Esc to the screen handler
+                        // to deselect it instead of going back to the main menu.
+                        if matches!(
+                            app.screen,
+                            Screen::Daw {
+                                selected_clip: Some(_),
+                                ..
+                            }
+                        ) {
+                            return Self::route_to_screen_handler(app, key.code);
+                        }
                         Self::handle_back_key(app);
                         return Ok(false);
                     }

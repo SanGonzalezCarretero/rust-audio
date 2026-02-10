@@ -26,7 +26,7 @@ pub(crate) mod layout_config {
     pub const PLAYHEAD_DELTA_SECONDS: f64 = 0.5;
     pub const SCROLL_STEP_SECONDS: u64 = 5;
     pub const GLOBAL_INSTRUCTIONS: &str =
-        "n: Add | d: Del | Space: Play | Left/Right: Playhead | [/]: Scroll | h: Reset | Ctrl+S: Save";
+        "n: Add | d: Del | Space: Play | Left/Right: Playhead | [/]: Scroll | h: Reset | Tab: Clip | Bksp: Del Clip | Ctrl+S: Save";
 
     pub fn get_lane_constraints(track_count: usize) -> Vec<Constraint> {
         let denominator = track_count.max(3) as u32;

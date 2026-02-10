@@ -36,6 +36,23 @@ fn set_scroll_offset(app: &mut App, value: u64) {
     }
 }
 
+fn selected_clip(app: &App) -> Option<usize> {
+    match app.screen {
+        Screen::Daw { selected_clip, .. } => selected_clip,
+        _ => None,
+    }
+}
+
+fn set_selected_clip(app: &mut App, value: Option<usize>) {
+    if let Screen::Daw {
+        ref mut selected_clip,
+        ..
+    } = app.screen
+    {
+        *selected_clip = value;
+    }
+}
+
 /// Auto-scroll the viewport so the playhead stays visible.
 fn ensure_playhead_visible(app: &mut App) {
     let timeline_samples = app.session.sample_rate as u64 * layout_config::TIMELINE_SECONDS;
@@ -60,19 +77,42 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
     }
     let sel = selected_track(app);
 
+    // Validate selected_clip
+    if let Some(clip_idx) = selected_clip(app) {
+        if track_count == 0 || clip_idx >= app.session.tracks[sel].clips.len() {
+            set_selected_clip(app, None);
+        }
+    }
+
     match key {
         KeyCode::Up => {
             if sel > 0 {
                 set_selected_track(app, sel - 1);
+                set_selected_clip(app, None);
             }
         }
         KeyCode::Down => {
             if sel < max_selected {
                 set_selected_track(app, sel + 1);
+                set_selected_clip(app, None);
             }
         }
         KeyCode::Left => {
-            if !app.session.transport.is_playing() {
+            if let Some(clip_idx) = selected_clip(app) {
+                if !app.session.transport.is_playing() {
+                    // Move the Clip to the left
+                    let delta = (app.session.sample_rate as f64
+                        * layout_config::PLAYHEAD_DELTA_SECONDS)
+                        as u64;
+                    let track = &mut app.session.tracks[sel];
+                    track.clips[clip_idx].starts_at =
+                        track.clips[clip_idx].starts_at.saturating_sub(delta);
+                    track.cache_waveform();
+                    let secs =
+                        track.clips[clip_idx].starts_at as f64 / app.session.sample_rate as f64;
+                    app.status = format!("Clip moved to {:.1}s", secs);
+                }
+            } else if !app.session.transport.is_playing() {
                 let delta = -(app.session.sample_rate as f64
                     * layout_config::PLAYHEAD_DELTA_SECONDS) as i64;
                 app.session.transport.move_playhead(delta);
@@ -85,7 +125,21 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
             }
         }
         KeyCode::Right => {
-            if !app.session.transport.is_playing() {
+            if let Some(clip_idx) = selected_clip(app) {
+                if !app.session.transport.is_playing() {
+                    // Move the Clip to the right
+                    let delta = (app.session.sample_rate as f64
+                        * layout_config::PLAYHEAD_DELTA_SECONDS)
+                        as u64;
+                    let track = &mut app.session.tracks[sel];
+                    track.clips[clip_idx].starts_at =
+                        track.clips[clip_idx].starts_at.saturating_add(delta);
+                    track.cache_waveform();
+                    let secs =
+                        track.clips[clip_idx].starts_at as f64 / app.session.sample_rate as f64;
+                    app.status = format!("Clip moved to {:.1}s", secs);
+                }
+            } else if !app.session.transport.is_playing() {
                 let delta =
                     (app.session.sample_rate as f64 * layout_config::PLAYHEAD_DELTA_SECONDS) as i64;
                 app.session.transport.move_playhead(delta);
@@ -197,7 +251,9 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
         }
 
         KeyCode::Char('c') => {
+            set_selected_clip(app, None);
             app.session.tracks[sel].clips.clear();
+            app.session.tracks[sel].cache_waveform();
             app.status = format!("Track {} cleared", sel + 1);
         }
 
@@ -274,6 +330,7 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
 
         KeyCode::Char('d') => {
             // Delete selected track
+            set_selected_clip(app, None);
             if track_count <= 1 {
                 app.status = "Cannot remove the last track".to_string();
             } else {
@@ -287,6 +344,45 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
                     }
                     Err(e) => app.status = format!("Cannot remove track: {}", e),
                 }
+            }
+        }
+
+        KeyCode::Tab => {
+            if !app.session.transport.is_playing() && track_count > 0 {
+                let clip_count = app.session.tracks[sel].clips.len();
+                if clip_count > 0 {
+                    let next = match selected_clip(app) {
+                        None => Some(0),
+                        Some(idx) if idx + 1 < clip_count => Some(idx + 1),
+                        Some(_) => None,
+                    };
+                    set_selected_clip(app, next);
+                    if let Some(idx) = next {
+                        let clip = &app.session.tracks[sel].clips[idx];
+                        let secs = clip.starts_at as f64 / app.session.sample_rate as f64;
+                        app.status = format!("Clip {} selected (at {:.1}s)", idx + 1, secs);
+                    } else {
+                        app.status = "Clip deselected".to_string();
+                    }
+                }
+            }
+        }
+
+        KeyCode::Backspace => {
+            if let Some(clip_idx) = selected_clip(app) {
+                if !app.session.transport.is_playing() {
+                    app.session.tracks[sel].clips.remove(clip_idx);
+                    app.session.tracks[sel].cache_waveform();
+                    set_selected_clip(app, None);
+                    app.status = format!("Clip {} deleted", clip_idx + 1);
+                }
+            }
+        }
+
+        KeyCode::Esc => {
+            if selected_clip(app).is_some() {
+                set_selected_clip(app, None);
+                app.status = "Clip deselected".to_string();
             }
         }
 
