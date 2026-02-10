@@ -97,7 +97,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             layout_config::LANE_STATUS_ACTIVE
         };
 
-        let title = layout_config::format_lane_title(i + 1, track.volume, status);
+        let title = layout_config::format_lane_title(&track.name, track.volume, status);
 
         let block = Block::default()
             .borders(Borders::ALL)

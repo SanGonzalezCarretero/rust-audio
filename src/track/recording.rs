@@ -140,7 +140,7 @@ impl Track {
             wav.from_f64_samples(&samples_f64);
 
             self.clips.push(Clip {
-                id: generate_clip_id(),
+                id: generate_clip_id(&self.name),
                 wav_data: wav,
                 starts_at: self.recording_start_position,
             });

@@ -4,7 +4,6 @@ mod recording;
 
 use crate::effects::EffectInstance;
 use crate::wav::WavFile;
-use rand::Rng;
 use ringbuf::HeapProd;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -27,13 +26,12 @@ pub struct Clip {
     pub starts_at: u64, // sample position on the timeline
 }
 
-pub fn generate_clip_id() -> String {
+pub fn generate_clip_id(track_name: &str) -> String {
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_millis();
-    let r: u32 = rand::thread_rng().gen();
-    format!("{:x}{:08x}", ts, r)
+        .as_secs();
+    format!("{}-{}", track_name, ts)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
