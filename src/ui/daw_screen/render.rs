@@ -119,7 +119,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         let is_recording = track.state == crate::track::TrackState::Recording;
         let rec_start_pos = track.recording_start_position;
 
-        let clips_waveform: Option<Vec<(f64, f64)>> = track.clips_waveform().map(|w| w.to_vec());
+        let clips_waveform: Option<Vec<(f32, f32)>> = track.clips_waveform().map(|w| w.to_vec());
         let clips_end = track.clips_end();
         let clips_waveform_len = clips_waveform.as_ref().map(|w| w.len()).unwrap_or(0);
 
@@ -187,8 +187,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                         if !clip_bounds.iter().any(|&(s, e, _)| x >= s && x <= e) {
                             continue;
                         }
-                        let y_min = (min * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0);
-                        let y_max = (max * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0);
+                        let y_min = (min * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0) as f64;
+                        let y_max = (max * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0) as f64;
                         ctx.draw(&Line {
                             x1: x, y1: y_min, x2: x, y2: y_max,
                             color: Color::Green,
@@ -201,8 +201,8 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                     let chunk = crate::track::RECORDING_WAVEFORM_CHUNK_SIZE as f64;
                     for (j, &(min, max)) in waveform.iter().enumerate() {
                         let x = rec_start_pos as f64 + j as f64 * chunk;
-                        let y_min = (min * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0);
-                        let y_max = (max * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0);
+                        let y_min = (min * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0) as f64;
+                        let y_max = (max * layout_config::WAVEFORM_SENSITIVITY).clamp(-1.0, 1.0) as f64;
                         ctx.draw(&Line {
                             x1: x, y1: y_min, x2: x, y2: y_max,
                             color: Color::LightRed,

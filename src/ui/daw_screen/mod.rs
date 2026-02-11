@@ -21,7 +21,7 @@ pub(crate) mod layout_config {
     pub const LANE_STATUS_MUTED: &str = "MUTED";
     pub const LANE_STATUS_ACTIVE: &str = "ACTIVE";
     pub const LANE_STATUS_RECORDING: &str = "\u{1f534} REC";
-    pub const WAVEFORM_SENSITIVITY: f64 = 8.0;
+    pub const WAVEFORM_SENSITIVITY: f32 = 8.0;
     pub const TIMELINE_SECONDS: u64 = 20;
     pub const PLAYHEAD_DELTA_SECONDS: f64 = 0.5;
     pub const SCROLL_STEP_SECONDS: u64 = 5;

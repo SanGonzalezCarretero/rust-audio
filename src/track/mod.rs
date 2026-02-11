@@ -101,9 +101,9 @@ pub struct Track {
     waveform_thread: WaveformThread,
 
     // Live recording waveform (written by background thread, read by UI)
-    waveform: Arc<RwLock<Vec<(f64, f64)>>>,
+    waveform: Arc<RwLock<Vec<(f32, f32)>>>,
     // Cached waveform for existing clips (persists during recording)
-    clips_waveform: Vec<(f64, f64)>,
+    clips_waveform: Vec<(f32, f32)>,
 }
 
 impl Default for Track {
@@ -160,17 +160,17 @@ impl Track {
     }
 
     /// Mix all clips into a single sample buffer starting from `from_sample`.
-    pub fn mix_clips(&self, from_sample: u64) -> (Vec<f64>, u64) {
+    pub fn mix_clips(&self, from_sample: u64) -> (Vec<f32>, u64) {
         let end_sample = self.clips_end();
         if from_sample >= end_sample {
             return (Vec::new(), end_sample);
         }
 
         let buffer_len = (end_sample - from_sample) as usize;
-        let mut mixed = vec![0.0f64; buffer_len];
+        let mut mixed = vec![0.0f32; buffer_len];
 
         for clip in &self.clips {
-            let clip_samples = clip.wav_data.to_f64_samples();
+            let clip_samples = clip.wav_data.to_f32_samples();
             for (j, &sample) in clip_samples.iter().enumerate() {
                 let absolute_pos = clip.starts_at + j as u64;
                 if absolute_pos >= from_sample && absolute_pos < end_sample {
@@ -196,7 +196,7 @@ impl Track {
 
 /// Returns (min_peak, max_peak) tuples for drawing waveform from center axis.
 /// When `exact_chunks` is true, only processes complete chunks (leftover samples ignored).
-fn downsample_bipolar(samples: &[f64], chunk_size: usize, exact_chunks: bool) -> Vec<(f64, f64)> {
+fn downsample_bipolar(samples: &[f32], chunk_size: usize, exact_chunks: bool) -> Vec<(f32, f32)> {
     let len = if exact_chunks {
         (samples.len() / chunk_size) * chunk_size
     } else {
@@ -206,8 +206,8 @@ fn downsample_bipolar(samples: &[f64], chunk_size: usize, exact_chunks: bool) ->
     samples[..len]
         .chunks(chunk_size)
         .map(|chunk| {
-            let min = chunk.iter().cloned().fold(f64::INFINITY, f64::min);
-            let max = chunk.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let min = chunk.iter().cloned().fold(f32::INFINITY, f32::min);
+            let max = chunk.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
             (min, max)
         })
         .collect()
