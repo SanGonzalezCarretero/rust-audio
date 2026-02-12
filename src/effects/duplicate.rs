@@ -40,7 +40,7 @@ impl EffectTrait for Duplicate {
         Err("Duplicate has no configurable parameters".to_string())
     }
 
-    fn apply(&self, samples: &mut Vec<f64>, _sample_rate: u32) -> Result<(), &'static str> {
+    fn apply(&self, samples: &mut Vec<f32>, _sample_rate: u32) -> Result<(), &'static str> {
         let original = samples.clone();
         samples.extend(original);
         Ok(())

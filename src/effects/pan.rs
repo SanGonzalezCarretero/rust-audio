@@ -44,12 +44,12 @@ impl fmt::Debug for PanRight {
     }
 }
 
-fn pan_apply(samples: &mut Vec<f64>, amount: u8, direction: PanDirection) -> Result<(), &'static str> {
+fn pan_apply(samples: &mut Vec<f32>, amount: u8, direction: PanDirection) -> Result<(), &'static str> {
     if amount > 100 {
         return Err("Pan amount must be 0-100");
     }
 
-    let gain = amount as f64 / 100.0;
+    let gain = amount as f32 / 100.0;
 
     for chunk in samples.chunks_exact_mut(2) {
         match direction {
@@ -98,7 +98,7 @@ impl EffectTrait for PanLeft {
         pan_update_parameter(param_name, value, PanDirection::Left)
     }
 
-    fn apply(&self, samples: &mut Vec<f64>, _sample_rate: u32) -> Result<(), &'static str> {
+    fn apply(&self, samples: &mut Vec<f32>, _sample_rate: u32) -> Result<(), &'static str> {
         pan_apply(samples, self.0, PanDirection::Left)
     }
 
@@ -120,7 +120,7 @@ impl EffectTrait for PanRight {
         pan_update_parameter(param_name, value, PanDirection::Right)
     }
 
-    fn apply(&self, samples: &mut Vec<f64>, _sample_rate: u32) -> Result<(), &'static str> {
+    fn apply(&self, samples: &mut Vec<f32>, _sample_rate: u32) -> Result<(), &'static str> {
         pan_apply(samples, self.0, PanDirection::Right)
     }
 

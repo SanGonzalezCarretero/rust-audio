@@ -62,13 +62,13 @@ impl EffectTrait for AdjustVolume {
         }
     }
 
-    fn apply(&self, samples: &mut Vec<f64>, _sample_rate: u32) -> Result<(), &'static str> {
+    fn apply(&self, samples: &mut Vec<f32>, _sample_rate: u32) -> Result<(), &'static str> {
         if self.0 > 2.0 || self.0 <= 0.0 {
             return Err("Not a valid volume value. Try again.");
         }
 
         for sample in samples.iter_mut() {
-            *sample *= self.0 as f64;
+            *sample *= self.0;
             *sample = sample.clamp(-1.0, 1.0); // Prevent clipping
         }
         Ok(())

@@ -34,7 +34,7 @@ pub trait EffectTrait: std::fmt::Debug + Send + Sync {
         Self: Sized;
     fn parameters(&self) -> Vec<(String, String)>;
     fn update_parameter_boxed(&self, param_name: &str, value: &str) -> Result<EffectBox, String>;
-    fn apply(&self, samples: &mut Vec<f64>, sample_rate: u32) -> Result<(), &'static str>;
+    fn apply(&self, samples: &mut Vec<f32>, sample_rate: u32) -> Result<(), &'static str>;
 
     // Type identification for trait objects
     fn type_id(&self) -> TypeId;
@@ -93,7 +93,7 @@ impl EffectInstance {
         self.effect.parameters()
     }
 
-    pub fn apply(&self, samples: &mut Vec<f64>, sample_rate: u32) -> Result<(), &'static str> {
+    pub fn apply(&self, samples: &mut Vec<f32>, sample_rate: u32) -> Result<(), &'static str> {
         self.effect.apply(samples, sample_rate)
     }
 

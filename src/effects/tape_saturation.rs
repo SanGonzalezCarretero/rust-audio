@@ -40,10 +40,10 @@ impl EffectTrait for TapeSaturation {
         Err("TapeSaturation has no configurable parameters".to_string())
     }
 
-    fn apply(&self, samples: &mut Vec<f64>, _sample_rate: u32) -> Result<(), &'static str> {
-        let drive = 2.0; // How hard we push the "tape"
-        let mix = 0.3; // How much saturation to blend in (30%)
-        let output_gain = 0.8; // Compensate for volume increase
+    fn apply(&self, samples: &mut Vec<f32>, _sample_rate: u32) -> Result<(), &'static str> {
+        let drive: f32 = 2.0; // How hard we push the "tape"
+        let mix: f32 = 0.3; // How much saturation to blend in (30%)
+        let output_gain: f32 = 0.8; // Compensate for volume increase
 
         for sample in samples.iter_mut() {
             let clean = *sample;

@@ -226,13 +226,13 @@ impl WavFile {
         &mut self,
         effects: Vec<EffectInstance>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut samples = self.to_f64_samples();
+        let mut samples = self.to_f32_samples();
 
         for effect in effects {
             effect.apply(&mut samples, self.header.sample_rate)?;
         }
 
-        self.from_f64_samples(&samples);
+        self.from_f32_samples(&samples);
 
         Ok(())
     }
