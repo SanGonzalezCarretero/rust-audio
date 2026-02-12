@@ -21,7 +21,7 @@ pub(crate) mod layout_config {
     pub const LANE_STATUS_MUTED: &str = "MUTED";
     pub const LANE_STATUS_ACTIVE: &str = "ACTIVE";
     pub const LANE_STATUS_RECORDING: &str = "\u{1f534} REC";
-    pub const WAVEFORM_SENSITIVITY: f32 = 8.0;
+    pub const WAVEFORM_SENSITIVITY: f32 = 4.0;
     pub const TIMELINE_SECONDS: u64 = 20;
     pub const PLAYHEAD_DELTA_SECONDS: f64 = 0.5;
     pub const SCROLL_STEP_SECONDS: u64 = 5;
@@ -35,12 +35,25 @@ pub(crate) mod layout_config {
             .collect()
     }
 
-    pub fn format_lane_title(name: &str, volume: f64, input_channel: Option<u16>, status: &str) -> String {
+    pub fn format_lane_title(
+        name: &str,
+        volume: f64,
+        input_channel: Option<u16>,
+        status: &str,
+    ) -> String {
         let input_label = match input_channel {
             None => "All",
             Some(0) => "In 1",
             Some(1) => "In 2",
-            Some(n) => return format!("{} | Vol: {:.0}% | In {} | {}", name, volume * 100.0, n + 1, status),
+            Some(n) => {
+                return format!(
+                    "{} | Vol: {:.0}% | In {} | {}",
+                    name,
+                    volume * 100.0,
+                    n + 1,
+                    status
+                )
+            }
         };
         format!(
             "{} | Vol: {:.0}% | {} | {}",
