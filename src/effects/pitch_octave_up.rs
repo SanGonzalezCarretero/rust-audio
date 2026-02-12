@@ -40,7 +40,7 @@ impl EffectTrait for PitchOctaveUp {
         Err("PitchOctaveUp has no configurable parameters".to_string())
     }
 
-    fn apply(&self, samples: &mut Vec<f64>, _sample_rate: u32) -> Result<(), &'static str> {
+    fn apply(&self, samples: &mut Vec<f32>, _sample_rate: u32) -> Result<(), &'static str> {
         // Simple pitch shifting by taking every other sample
         let mut new_samples = Vec::with_capacity(samples.len() / 2);
 

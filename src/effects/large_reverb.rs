@@ -40,22 +40,22 @@ impl EffectTrait for LargeReverb {
         Err("LargeReverb has no configurable parameters".to_string())
     }
 
-    fn apply(&self, samples: &mut Vec<f64>, sample_rate: u32) -> Result<(), &'static str> {
+    fn apply(&self, samples: &mut Vec<f32>, sample_rate: u32) -> Result<(), &'static str> {
         let comb_delays = vec![
-            (sample_rate as f64 * 0.0897) as usize, // ~90ms
-            (sample_rate as f64 * 0.1171) as usize, // ~117ms
-            (sample_rate as f64 * 0.1411) as usize, // ~141ms
-            (sample_rate as f64 * 0.1637) as usize, // ~164ms
-            (sample_rate as f64 * 0.1893) as usize, // ~189ms
-            (sample_rate as f64 * 0.2159) as usize, // ~216ms
+            (sample_rate as f32 * 0.0897) as usize, // ~90ms
+            (sample_rate as f32 * 0.1171) as usize, // ~117ms
+            (sample_rate as f32 * 0.1411) as usize, // ~141ms
+            (sample_rate as f32 * 0.1637) as usize, // ~164ms
+            (sample_rate as f32 * 0.1893) as usize, // ~189ms
+            (sample_rate as f32 * 0.2159) as usize, // ~216ms
         ];
 
-        let feedback = 0.75;
-        let wet_level = 0.6;
-        let mut reverb_output = vec![0.0; samples.len()];
+        let feedback: f32 = 0.75;
+        let wet_level: f32 = 0.6;
+        let mut reverb_output: Vec<f32> = vec![0.0; samples.len()];
 
         for delay in comb_delays {
-            let mut delay_buffer = vec![0.0; delay];
+            let mut delay_buffer: Vec<f32> = vec![0.0; delay];
             let mut buffer_index = 0;
 
             for (i, &input) in samples.iter().enumerate() {

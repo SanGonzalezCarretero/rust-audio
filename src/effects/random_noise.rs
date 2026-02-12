@@ -41,12 +41,12 @@ impl EffectTrait for RandomNoise {
         Err("RandomNoise has no configurable parameters".to_string())
     }
 
-    fn apply(&self, samples: &mut Vec<f64>, _sample_rate: u32) -> Result<(), &'static str> {
+    fn apply(&self, samples: &mut Vec<f32>, _sample_rate: u32) -> Result<(), &'static str> {
         let mut rng = rand::thread_rng();
 
         for sample in samples.iter_mut() {
             // Add random noise with small amplitude
-            let noise = rng.gen_range(-0.1..0.1);
+            let noise: f32 = rng.gen_range(-0.1..0.1);
             *sample += noise;
             *sample = sample.clamp(-1.0, 1.0);
         }

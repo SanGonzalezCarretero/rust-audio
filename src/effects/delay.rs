@@ -87,7 +87,7 @@ impl EffectTrait for Delay {
         }
     }
 
-    fn apply(&self, samples: &mut Vec<f64>, sample_rate: u32) -> Result<(), &'static str> {
+    fn apply(&self, samples: &mut Vec<f32>, sample_rate: u32) -> Result<(), &'static str> {
         let delay_samples = (self.ms * sample_rate as usize) / 1000;
         let original = samples.clone();
 
@@ -97,7 +97,7 @@ impl EffectTrait for Delay {
         for tap_idx in 0..self.taps {
             let tap = tap_idx + 1;
             let delay_offset = delay_samples * tap;
-            let feedback_gain = 0.5 / tap as f64;
+            let feedback_gain = 0.5 / tap as f32;
 
             for (i, &original_sample) in original.iter().enumerate() {
                 let delayed_index = i + delay_offset;

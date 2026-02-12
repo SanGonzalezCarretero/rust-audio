@@ -14,22 +14,17 @@ impl Track {
     }
 
     /// Apply the FX chain to a buffer.
-    /// Effects use f64 internally, so we convert back and forth.
     /// Some effects (like Delay) may extend the buffer to include tails.
-    fn apply_fx(&self, buffer: Vec<f32>, sample_rate: u32) -> Vec<f32> {
+    fn apply_fx(&self, mut buffer: Vec<f32>, sample_rate: u32) -> Vec<f32> {
         if self.fx_chain.is_empty() {
             return buffer;
         }
 
-        // Convert to f64 for effect processing
-        let mut samples_f64: Vec<f64> = buffer.iter().map(|&s| s as f64).collect();
-
         for effect in &self.fx_chain {
-            let _ = effect.apply(&mut samples_f64, sample_rate);
+            let _ = effect.apply(&mut buffer, sample_rate);
         }
 
-        // Convert back to f32 (may be longer than original due to effect tails)
-        samples_f64.iter().map(|&s| s as f32).collect()
+        buffer
     }
 
     /// Apply track volume to a buffer.
