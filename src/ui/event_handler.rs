@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use super::audio_preferences_screen::AudioPreferencesScreen;
 use super::daw_screen::DawScreen;
+use super::fx_chain_editor_screen::FxChainEditorScreen;
 use super::main_menu_screen::MainMenuScreen;
 use super::screen_trait::ScreenTrait;
 use super::{App, Screen};
@@ -59,13 +60,26 @@ impl AppEventHandler {
     fn handle_user_input(app: &mut App) -> Result<bool, Box<dyn std::error::Error>> {
         if let Event::Key(key) = event::read()? {
             // Ctrl+S: save project (only in DAW screen)
-            if key.modifiers.contains(KeyModifiers::CONTROL)
-                && key.code == KeyCode::Char('s')
-            {
+            if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
                 if matches!(app.screen, Screen::Daw { .. }) {
                     Self::save_project(app);
                 }
                 return Ok(false);
+            }
+
+            // Shift+E: open FX Chain Editor (only in DAW screen)
+            // Crossterm reports Shift+e as KeyCode::Char('E') (uppercase)
+            if key.code == KeyCode::Char('E') {
+                if let Screen::Daw { selected_track, .. } = app.screen {
+                    app.screen = Screen::FxChainEditor {
+                        track_index: selected_track,
+                        selected_effect: 0,
+                        editing_param: None,
+                        add_mode: false,
+                        add_mode_selected: 0,
+                    };
+                    return Ok(false);
+                }
             }
 
             // On text-input screens (NewProject), don't intercept 'q' or Esc globally;
@@ -85,6 +99,10 @@ impl AppEventHandler {
                                 ..
                             }
                         ) {
+                            return Self::route_to_screen_handler(app, key.code);
+                        }
+                        // FxChainEditor handles its own Esc (returns to DAW)
+                        if matches!(app.screen, Screen::FxChainEditor { .. }) {
                             return Self::route_to_screen_handler(app, key.code);
                         }
                         Self::handle_back_key(app);
@@ -129,6 +147,7 @@ impl AppEventHandler {
             Screen::OpenProject { .. } => MainMenuScreen.handle_input(app, key),
             Screen::Daw { .. } => DawScreen.handle_input(app, key),
             Screen::AudioPreferences { .. } => AudioPreferencesScreen.handle_input(app, key),
+            Screen::FxChainEditor { .. } => FxChainEditorScreen.handle_input(app, key),
         }
     }
 }

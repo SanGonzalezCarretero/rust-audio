@@ -366,6 +366,56 @@ impl Session {
         Ok(())
     }
 
+    // --- FX Chain management ---
+
+    pub fn add_effect_to_track(
+        &mut self,
+        track_idx: usize,
+        effect: crate::effects::EffectInstance,
+    ) -> Result<(), String> {
+        let track = self
+            .tracks
+            .get_mut(track_idx)
+            .ok_or_else(|| "Track index out of bounds".to_string())?;
+        track.fx_chain.push(effect);
+        Ok(())
+    }
+
+    pub fn remove_effect_from_track(
+        &mut self,
+        track_idx: usize,
+        effect_idx: usize,
+    ) -> Result<(), String> {
+        let track = self
+            .tracks
+            .get_mut(track_idx)
+            .ok_or_else(|| "Track index out of bounds".to_string())?;
+        if effect_idx >= track.fx_chain.len() {
+            return Err("Effect index out of bounds".to_string());
+        }
+        track.fx_chain.remove(effect_idx);
+        Ok(())
+    }
+
+    pub fn update_effect_param(
+        &mut self,
+        track_idx: usize,
+        effect_idx: usize,
+        param: &str,
+        value: &str,
+    ) -> Result<(), String> {
+        let track = self
+            .tracks
+            .get_mut(track_idx)
+            .ok_or_else(|| "Track index out of bounds".to_string())?;
+        if effect_idx >= track.fx_chain.len() {
+            return Err("Effect index out of bounds".to_string());
+        }
+        let updated = track.fx_chain[effect_idx].update_parameter(param, value)?;
+        track.fx_chain[effect_idx] = updated;
+        Ok(())
+    }
+
     /// Render the entire master mix from the start as f32 samples.
     pub fn render_full_mix(&self) -> Vec<f32> {
         self.render_master_buffer(0)
@@ -393,7 +443,7 @@ impl Session {
                 continue;
             }
             // Ask the track to render its audio from this position
-            let rendered = track.render(playhead_pos);
+            let rendered = track.render(playhead_pos, self.sample_rate);
             if rendered.is_empty() {
                 continue;
             }

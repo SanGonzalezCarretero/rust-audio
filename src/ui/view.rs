@@ -7,6 +7,7 @@ use ratatui::{
 
 use super::audio_preferences_screen::AudioPreferencesScreen;
 use super::daw_screen::DawScreen;
+use super::fx_chain_editor_screen::FxChainEditorScreen;
 use super::main_menu_screen::MainMenuScreen;
 use super::screen_trait::ScreenTrait;
 use super::{App, Screen};
@@ -85,6 +86,7 @@ impl AppView {
             | Screen::OpenProject { .. } => MainMenuScreen.render(f, app, area),
             Screen::Daw { .. } => DawScreen.render(f, app, area),
             Screen::AudioPreferences { .. } => AudioPreferencesScreen.render(f, app, area),
+            Screen::FxChainEditor { .. } => FxChainEditorScreen.render(f, app, area),
         }
     }
 

@@ -9,6 +9,7 @@ mod audio_preferences_screen;
 pub(crate) mod daw_screen;
 mod debug_logger;
 mod event_handler;
+mod fx_chain_editor_screen;
 mod main_menu_screen;
 mod screen_trait;
 mod view;
@@ -35,6 +36,13 @@ pub enum Screen {
         selected_panel: usize,
         input_selected: usize,
         output_selected: usize,
+    },
+    FxChainEditor {
+        track_index: usize,           // Which track we're editing
+        selected_effect: usize,       // Currently selected effect in chain (0 = "Add new")
+        editing_param: Option<usize>, // If Some, we're editing a parameter
+        add_mode: bool,               // If true, showing effect type picker
+        add_mode_selected: usize,     // Selected effect type in add mode
     },
 }
 

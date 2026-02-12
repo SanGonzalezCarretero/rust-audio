@@ -3,7 +3,7 @@
   "sample_rate": 44100,
   "tracks": [
     {
-      "name": "Track 2",
+      "name": "Track 1",
       "volume": 1.0,
       "muted": false,
       "clips": [
