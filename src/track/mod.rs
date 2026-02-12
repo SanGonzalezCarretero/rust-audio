@@ -91,6 +91,7 @@ pub struct Track {
     // Playback state
     pub volume: f64,
     pub muted: bool,
+    pub input_channel: Option<u16>,
 
     // Recording ring buffer producer (lock-free, written by audio callback)
     recording_producer: Option<HeapProd<f32>>,
@@ -118,6 +119,7 @@ impl Default for Track {
             recording_start_position: 0,
             volume: 1.0,
             muted: false,
+            input_channel: None,
             recording_producer: None,
             recording_channels: None,
             recording_sample_rate: None,

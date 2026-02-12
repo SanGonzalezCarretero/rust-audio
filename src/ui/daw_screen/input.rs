@@ -280,6 +280,23 @@ pub fn handle_input(app: &mut App, key: KeyCode) -> Result<bool, Box<dyn std::er
             app.status = format!("Track {} volume: {:.0}%", sel + 1, track.volume * 100.0);
         }
 
+        KeyCode::Char('i') => {
+            let track = &mut app.session.tracks[sel];
+            track.input_channel = match track.input_channel {
+                None => Some(0),
+                Some(0) => Some(1),
+                Some(_) => None,
+            };
+            let label = match track.input_channel {
+                None => "All".to_string(),
+                Some(ch) => format!("In {}", ch + 1),
+            };
+            app.status = format!("Track {} input: {}", sel + 1, label);
+            // Restart monitoring so the callback picks up the new input channel
+            app.session.stop_monitoring();
+            let _ = app.session.start_monitoring();
+        }
+
         KeyCode::Char('x') => {
             let samples = app.session.render_full_mix();
             if samples.is_empty() {

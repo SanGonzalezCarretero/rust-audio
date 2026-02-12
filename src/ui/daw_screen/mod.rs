@@ -35,11 +35,18 @@ pub(crate) mod layout_config {
             .collect()
     }
 
-    pub fn format_lane_title(name: &str, volume: f64, status: &str) -> String {
+    pub fn format_lane_title(name: &str, volume: f64, input_channel: Option<u16>, status: &str) -> String {
+        let input_label = match input_channel {
+            None => "All",
+            Some(0) => "In 1",
+            Some(1) => "In 2",
+            Some(n) => return format!("{} | Vol: {:.0}% | In {} | {}", name, volume * 100.0, n + 1, status),
+        };
         format!(
-            "{} | Vol: {:.0}% | {}",
+            "{} | Vol: {:.0}% | {} | {}",
             name,
             volume * 100.0,
+            input_label,
             status,
         )
     }
