@@ -7,11 +7,9 @@ use crate::wav::WavFile;
 use ringbuf::HeapProd;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex, RwLock,
+    Arc, RwLock,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
-
-const MONITOR_BUFFER_SAMPLES: usize = 4800; // ~100ms @ 48kHz for UI visualization
 
 pub const LATENCY_MS: f32 = 10.0;
 
@@ -23,7 +21,7 @@ const WAVEFORM_MAX_POINTS: usize = 500;
 pub struct Clip {
     pub id: String,
     pub wav_data: WavFile,
-    pub starts_at: u64, // sample position on the timeline
+    pub starts_at: u64, // frame position on the timeline
 }
 
 pub fn generate_clip_id(track_name: &str) -> String {
@@ -81,9 +79,6 @@ pub struct Track {
     // FX chain
     pub fx_chain: Vec<EffectInstance>,
 
-    // Monitoring buffer - for live display visualization
-    pub monitor_buffer: Arc<Mutex<Vec<f32>>>,
-
     // Playback data (recorded or loaded)
     pub clips: Vec<Clip>,
     pub recording_start_position: u64,
@@ -91,6 +86,7 @@ pub struct Track {
     // Playback state
     pub volume: f64,
     pub muted: bool,
+    pub input_channel: Option<u16>,
 
     // Recording ring buffer producer (lock-free, written by audio callback)
     recording_producer: Option<HeapProd<f32>>,
@@ -113,11 +109,11 @@ impl Default for Track {
             monitoring: false,
             state: TrackState::Idle,
             fx_chain: vec![],
-            monitor_buffer: Arc::new(Mutex::new(vec![0.0; MONITOR_BUFFER_SAMPLES])),
             clips: Vec::new(),
             recording_start_position: 0,
             volume: 1.0,
             muted: false,
+            input_channel: None,
             recording_producer: None,
             recording_channels: None,
             recording_sample_rate: None,
@@ -150,37 +146,44 @@ impl Track {
         self.stop_monitoring();
     }
 
-    /// Sample position of the end of the furthest clip.
+    /// Frame position of the end of the furthest clip.
     pub fn clips_end(&self) -> u64 {
         self.clips
             .iter()
-            .map(|clip| clip.starts_at + clip.wav_data.sample_count() as u64)
+            .map(|clip| clip.starts_at + clip.wav_data.frame_count() as u64)
             .max()
             .unwrap_or(0)
     }
 
-    /// Mix all clips into a single sample buffer starting from `from_sample`.
-    pub fn mix_clips(&self, from_sample: u64) -> (Vec<f32>, u64) {
-        let end_sample = self.clips_end();
-        if from_sample >= end_sample {
-            return (Vec::new(), end_sample);
+    /// Mix all clips into a single mono buffer starting from `from_frame`.
+    /// Multi-channel clips are downmixed to mono by averaging channels per frame.
+    pub fn mix_clips(&self, from_frame: u64) -> (Vec<f32>, u64) {
+        let end_frame = self.clips_end();
+        if from_frame >= end_frame {
+            return (Vec::new(), end_frame);
         }
 
-        let buffer_len = (end_sample - from_sample) as usize;
+        let buffer_len = (end_frame - from_frame) as usize;
         let mut mixed = vec![0.0f32; buffer_len];
 
         for clip in &self.clips {
             let clip_samples = clip.wav_data.to_f32_samples();
-            for (j, &sample) in clip_samples.iter().enumerate() {
-                let absolute_pos = clip.starts_at + j as u64;
-                if absolute_pos >= from_sample && absolute_pos < end_sample {
-                    let buf_idx = (absolute_pos - from_sample) as usize;
-                    mixed[buf_idx] += sample;
+            let channels = clip.wav_data.header.num_channels as usize;
+            let frame_count = clip.wav_data.frame_count();
+
+            for frame in 0..frame_count {
+                let absolute_pos = clip.starts_at + frame as u64;
+                if absolute_pos >= from_frame && absolute_pos < end_frame {
+                    let buf_idx = (absolute_pos - from_frame) as usize;
+                    // Downmix: average all channels for this frame
+                    let start = frame * channels;
+                    let sum: f32 = clip_samples[start..start + channels].iter().sum();
+                    mixed[buf_idx] += sum / channels as f32;
                 }
             }
         }
 
-        (mixed, end_sample)
+        (mixed, end_frame)
     }
 
     pub fn cleanup(&mut self) {
@@ -213,9 +216,3 @@ fn downsample_bipolar(samples: &[f32], chunk_size: usize, exact_chunks: bool) ->
         .collect()
 }
 
-pub fn update_monitor_buffer(buffer: &Mutex<Vec<f32>>, data: &[f32]) {
-    if let Ok(mut buf) = buffer.try_lock() {
-        buf.clear();
-        buf.extend_from_slice(data);
-    }
-}

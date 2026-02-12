@@ -1,4 +1,7 @@
-use super::{downsample_bipolar, generate_clip_id, Clip, Track, TrackState, RECORDING_WAVEFORM_CHUNK_SIZE, WAVEFORM_MAX_POINTS};
+use super::{
+    downsample_bipolar, generate_clip_id, Clip, Track, TrackState, RECORDING_WAVEFORM_CHUNK_SIZE,
+    WAVEFORM_MAX_POINTS,
+};
 use crate::wav::WavFile;
 use ringbuf::{
     traits::{Consumer, Split},
@@ -6,7 +9,7 @@ use ringbuf::{
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex, RwLock,
+    Arc, RwLock,
 };
 
 impl Track {
@@ -40,7 +43,7 @@ impl Track {
         let should_stop = self.waveform_thread.waveform_stop();
 
         let handle = std::thread::spawn(move || {
-            Self::waveform_thread(consumer, waveform_clone, should_stop)
+            Self::waveform_thread(consumer, waveform_clone, should_stop, channels)
         });
 
         self.waveform_thread.waveform = Some(handle);
@@ -48,15 +51,22 @@ impl Track {
 
     /// Waveform background thread: drains ring buffer consumer into a local accumulator,
     /// computes waveform peaks, and returns all accumulated samples on exit.
+    /// Raw multi-channel data is preserved in the returned Vec for clip storage.
+    /// Waveform peaks are computed per-frame (downmixed to mono).
     fn waveform_thread(
         mut consumer: HeapCons<f32>,
         waveform: Arc<RwLock<Vec<(f32, f32)>>>,
         should_stop: Arc<AtomicBool>,
+        channels: u16,
     ) -> Vec<f32> {
         const UPDATE_INTERVAL_MS: u64 = 50;
 
+        let ch = channels as usize;
+        // RECORDING_WAVEFORM_CHUNK_SIZE is in frames; convert to raw samples
+        let chunk_raw_samples = RECORDING_WAVEFORM_CHUNK_SIZE * ch;
+
         let mut all_samples: Vec<f32> = Vec::new();
-        let mut unprocessed_offset: usize = 0; // index into all_samples of first unprocessed sample
+        let mut unprocessed_offset: usize = 0; // index into all_samples (raw samples)
         let mut drain_buf = vec![0.0f32; 4800]; // reusable drain buffer (~100ms at 48kHz)
 
         loop {
@@ -71,14 +81,18 @@ impl Track {
 
             // Process complete chunks for waveform display
             let unprocessed = all_samples.len() - unprocessed_offset;
-            let complete_chunks = unprocessed / RECORDING_WAVEFORM_CHUNK_SIZE;
+            let complete_chunks = unprocessed / chunk_raw_samples;
 
             if complete_chunks > 0 {
-                let process_up_to =
-                    unprocessed_offset + complete_chunks * RECORDING_WAVEFORM_CHUNK_SIZE;
-                let new_samples = &all_samples[unprocessed_offset..process_up_to];
-                let new_peaks =
-                    downsample_bipolar(new_samples, RECORDING_WAVEFORM_CHUNK_SIZE, true);
+                let process_up_to = unprocessed_offset + complete_chunks * chunk_raw_samples;
+                let raw = &all_samples[unprocessed_offset..process_up_to];
+
+                // Downmix to mono per frame, then compute peaks
+                let mono: Vec<f32> = raw
+                    .chunks_exact(ch)
+                    .map(|frame| frame.iter().sum::<f32>() / ch as f32)
+                    .collect();
+                let new_peaks = downsample_bipolar(&mono, RECORDING_WAVEFORM_CHUNK_SIZE, true);
                 unprocessed_offset = process_up_to;
 
                 if let Ok(mut wf) = waveform.write() {
@@ -107,11 +121,6 @@ impl Track {
     /// Take ownership of the recording ring buffer producer (moved into the audio callback).
     pub fn take_recording_producer(&mut self) -> Option<HeapProd<f32>> {
         self.recording_producer.take()
-    }
-
-    /// Get a clone of the monitor buffer Arc.
-    pub fn monitor_buffer_handle(&self) -> Arc<Mutex<Vec<f32>>> {
-        Arc::clone(&self.monitor_buffer)
     }
 
     pub fn stop_recording(&mut self) -> Result<(), Box<dyn std::error::Error>> {

@@ -101,7 +101,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             layout_config::LANE_STATUS_ACTIVE
         };
 
-        let title = layout_config::format_lane_title(&track.name, track.volume, status);
+        let title = layout_config::format_lane_title(&track.name, track.volume, track.input_channel, status);
 
         let block = Block::default()
             .borders(Borders::ALL)
@@ -136,7 +136,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             .enumerate()
             .map(|(ci, c)| {
                 let start = c.starts_at as f64;
-                let end = (c.starts_at + c.wav_data.sample_count() as u64) as f64;
+                let end = (c.starts_at + c.wav_data.frame_count() as u64) as f64;
                 let sel = is_selected && selected_clip_idx == Some(ci);
                 (start, end, sel)
             })
