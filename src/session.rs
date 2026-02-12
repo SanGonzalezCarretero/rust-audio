@@ -265,9 +265,9 @@ impl Session {
             let num_frames = data.len() / ch;
 
             // Route input to each track's recording buffer
-            for (i, prod) in rec_producers.iter_mut().enumerate() {
+            for (i, rec_prod) in rec_producers.iter_mut().enumerate() {
                 let samples = extract_channel_data(data, ch, input_channels[i]);
-                prod.push_slice(&samples);
+                rec_prod.push_slice(&samples);
             }
 
             // Mix selected channels for headphone output
