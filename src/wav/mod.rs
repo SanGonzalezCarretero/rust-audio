@@ -160,6 +160,16 @@ impl WavFile {
         self.audio_data.len() / bytes_per_sample
     }
 
+    /// Number of audio frames (1 frame = 1 sample per channel).
+    /// For mono this equals sample_count(); for stereo it's half.
+    pub fn frame_count(&self) -> usize {
+        let channels = self.header.num_channels as usize;
+        if channels == 0 {
+            return 0;
+        }
+        self.sample_count() / channels
+    }
+
     pub fn to_f32_samples(&self) -> Vec<f32> {
         let mut samples = Vec::with_capacity(self.audio_data.len() / 2);
 

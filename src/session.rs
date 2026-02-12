@@ -190,7 +190,12 @@ impl Session {
 
         let input_device = AudioEngine::get_input_device()?;
         let mut config = input_device.config.clone();
-        let sample_rate = config.sample_rate.0;
+        if config.sample_rate.0 != self.sample_rate {
+            return Err(format!(
+                "Input device sample rate ({}Hz) does not match session sample rate ({}Hz). Change your input device or start a new session.",
+                config.sample_rate.0, self.sample_rate
+            ).into());
+        }
         let channels = config.channels;
         config.buffer_size = BufferSize::Fixed(INPUT_BUFFER_FRAMES);
 
@@ -198,7 +203,7 @@ impl Session {
 
         for track in &mut self.tracks {
             if track.is_armed() {
-                track.prepare_recording(playhead_pos, sample_rate, channels);
+                track.prepare_recording(playhead_pos, self.sample_rate, channels);
             }
         }
 
@@ -216,10 +221,8 @@ impl Session {
         let (mut monitor_producer, monitor_consumer) = monitor_ring.split();
 
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            for mon in &mon_buffers {
+            for (prod, mon) in rec_producers.iter_mut().zip(mon_buffers.iter()) {
                 update_monitor_buffer(mon, data);
-            }
-            for prod in &mut rec_producers {
                 prod.push_slice(data);
             }
 
@@ -289,6 +292,12 @@ impl Session {
 
         let input_device = AudioEngine::get_input_device()?;
         let mut config = input_device.config.clone();
+        if config.sample_rate.0 != self.sample_rate {
+            return Err(format!(
+                "Input device sample rate ({}Hz) does not match session sample rate ({}Hz). Change your input device or start a new session.",
+                config.sample_rate.0, self.sample_rate
+            ).into());
+        }
         let channels = config.channels;
         config.buffer_size = BufferSize::Fixed(INPUT_BUFFER_FRAMES);
 
@@ -299,16 +308,16 @@ impl Session {
             .map(|t| t.monitor_buffer_handle())
             .collect();
 
-        let monitor_ring_size = MONITOR_RING_BUFFER_SIZE;
-        let monitor_ring = HeapRb::<f32>::new(monitor_ring_size);
+        let monitor_ring = HeapRb::<f32>::new(MONITOR_RING_BUFFER_SIZE);
         let (mut monitor_producer, monitor_consumer) = monitor_ring.split();
 
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             for mon in &mon_buffers {
                 update_monitor_buffer(mon, data);
             }
-            let input_channels = channels as usize;
-            for frame_start in (0..data.len()).step_by(input_channels) {
+
+            let ch = channels as usize;
+            for frame_start in (0..data.len()).step_by(ch) {
                 let _ = monitor_producer.try_push(data[frame_start]);
             }
         };

@@ -136,7 +136,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             .enumerate()
             .map(|(ci, c)| {
                 let start = c.starts_at as f64;
-                let end = (c.starts_at + c.wav_data.sample_count() as u64) as f64;
+                let end = (c.starts_at + c.wav_data.frame_count() as u64) as f64;
                 let sel = is_selected && selected_clip_idx == Some(ci);
                 (start, end, sel)
             })

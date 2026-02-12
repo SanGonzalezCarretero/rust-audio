@@ -23,7 +23,7 @@ const WAVEFORM_MAX_POINTS: usize = 500;
 pub struct Clip {
     pub id: String,
     pub wav_data: WavFile,
-    pub starts_at: u64, // sample position on the timeline
+    pub starts_at: u64, // frame position on the timeline
 }
 
 pub fn generate_clip_id(track_name: &str) -> String {
@@ -150,37 +150,44 @@ impl Track {
         self.stop_monitoring();
     }
 
-    /// Sample position of the end of the furthest clip.
+    /// Frame position of the end of the furthest clip.
     pub fn clips_end(&self) -> u64 {
         self.clips
             .iter()
-            .map(|clip| clip.starts_at + clip.wav_data.sample_count() as u64)
+            .map(|clip| clip.starts_at + clip.wav_data.frame_count() as u64)
             .max()
             .unwrap_or(0)
     }
 
-    /// Mix all clips into a single sample buffer starting from `from_sample`.
-    pub fn mix_clips(&self, from_sample: u64) -> (Vec<f32>, u64) {
-        let end_sample = self.clips_end();
-        if from_sample >= end_sample {
-            return (Vec::new(), end_sample);
+    /// Mix all clips into a single mono buffer starting from `from_frame`.
+    /// Multi-channel clips are downmixed to mono by averaging channels per frame.
+    pub fn mix_clips(&self, from_frame: u64) -> (Vec<f32>, u64) {
+        let end_frame = self.clips_end();
+        if from_frame >= end_frame {
+            return (Vec::new(), end_frame);
         }
 
-        let buffer_len = (end_sample - from_sample) as usize;
+        let buffer_len = (end_frame - from_frame) as usize;
         let mut mixed = vec![0.0f32; buffer_len];
 
         for clip in &self.clips {
             let clip_samples = clip.wav_data.to_f32_samples();
-            for (j, &sample) in clip_samples.iter().enumerate() {
-                let absolute_pos = clip.starts_at + j as u64;
-                if absolute_pos >= from_sample && absolute_pos < end_sample {
-                    let buf_idx = (absolute_pos - from_sample) as usize;
-                    mixed[buf_idx] += sample;
+            let channels = clip.wav_data.header.num_channels as usize;
+            let frame_count = clip.wav_data.frame_count();
+
+            for frame in 0..frame_count {
+                let absolute_pos = clip.starts_at + frame as u64;
+                if absolute_pos >= from_frame && absolute_pos < end_frame {
+                    let buf_idx = (absolute_pos - from_frame) as usize;
+                    // Downmix: average all channels for this frame
+                    let start = frame * channels;
+                    let sum: f32 = clip_samples[start..start + channels].iter().sum();
+                    mixed[buf_idx] += sum / channels as f32;
                 }
             }
         }
 
-        (mixed, end_sample)
+        (mixed, end_frame)
     }
 
     pub fn cleanup(&mut self) {
