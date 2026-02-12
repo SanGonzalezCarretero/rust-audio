@@ -12,10 +12,14 @@ use std::borrow::Cow;
 const INPUT_BUFFER_FRAMES: u32 = 32;
 const MONITOR_RING_BUFFER_SIZE: usize = 128;
 
-/// Extract a single channel from interleaved audio data.
+/// Extract a single channel's audio data from the full interleaved audio data.
 /// Returns the original data when no channel is selected (all channels),
 /// or an owned mono extraction for a specific channel.
-fn extract_channel<'a>(data: &'a [f32], channels: usize, input_channel: Option<u16>) -> Cow<'a, [f32]> {
+fn extract_channel_data<'a>(
+    data: &'a [f32],
+    channels: usize,
+    input_channel: Option<u16>,
+) -> Cow<'a, [f32]> {
     match input_channel {
         None => Cow::Borrowed(data),
         Some(sel) => {
@@ -28,7 +32,12 @@ fn extract_channel<'a>(data: &'a [f32], channels: usize, input_channel: Option<u
 
 /// Compute a mono sample for one frame based on channel selection.
 /// Returns the selected channel's sample, or the average of all channels.
-fn monitor_frame_sample(data: &[f32], frame: usize, channels: usize, input_channel: Option<u16>) -> f32 {
+fn monitor_frame_sample(
+    data: &[f32],
+    frame: usize,
+    channels: usize,
+    input_channel: Option<u16>,
+) -> f32 {
     match input_channel {
         Some(sel) => data[frame * channels + sel as usize],
         None => {
@@ -229,7 +238,11 @@ impl Session {
 
         for track in &mut self.tracks {
             if track.is_armed() {
-                let rec_channels = if track.input_channel.is_some() { 1 } else { channels };
+                let rec_channels = if track.input_channel.is_some() {
+                    1
+                } else {
+                    channels
+                };
                 track.prepare_recording(playhead_pos, self.sample_rate, rec_channels);
             }
         }
@@ -253,15 +266,17 @@ impl Session {
 
             // Route input to each track's recording buffer
             for (i, prod) in rec_producers.iter_mut().enumerate() {
-                let samples = extract_channel(data, ch, input_channels[i]);
+                let samples = extract_channel_data(data, ch, input_channels[i]);
                 prod.push_slice(&samples);
             }
 
             // Mix selected channels for headphone output
             for frame in 0..num_frames {
-                let mix: f32 = input_channels.iter()
+                let mix: f32 = input_channels
+                    .iter()
                     .map(|&ic| monitor_frame_sample(data, frame, ch, ic))
-                    .sum::<f32>() / input_channels.len() as f32;
+                    .sum::<f32>()
+                    / input_channels.len() as f32;
                 let _ = monitor_producer.try_push(mix);
             }
         };
@@ -335,7 +350,9 @@ impl Session {
         let channels = config.channels;
         config.buffer_size = BufferSize::Fixed(INPUT_BUFFER_FRAMES);
 
-        let input_channels: Vec<Option<u16>> = self.tracks.iter()
+        let input_channels: Vec<Option<u16>> = self
+            .tracks
+            .iter()
             .filter(|t| t.is_armed() && t.monitoring)
             .map(|t| t.input_channel)
             .collect();
@@ -349,9 +366,11 @@ impl Session {
 
             // Mix selected channels for headphone output
             for frame in 0..num_frames {
-                let mix: f32 = input_channels.iter()
+                let mix: f32 = input_channels
+                    .iter()
                     .map(|&ic| monitor_frame_sample(data, frame, ch, ic))
-                    .sum::<f32>() / input_channels.len() as f32;
+                    .sum::<f32>()
+                    / input_channels.len() as f32;
                 let _ = monitor_producer.try_push(mix);
             }
         };
