@@ -1,6 +1,6 @@
 use crate::audio_engine::AudioEngine;
 use crate::master_bus::{MasterBus, MasterBusConfig};
-use crate::track::{update_monitor_buffer, Track, TrackState};
+use crate::track::{Track, TrackState};
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{BufferSize, Stream};
 use ringbuf::{
@@ -8,7 +8,6 @@ use ringbuf::{
     HeapProd, HeapRb,
 };
 use std::borrow::Cow;
-use std::sync::{Arc, Mutex};
 
 const INPUT_BUFFER_FRAMES: u32 = 32;
 const MONITOR_RING_BUFFER_SIZE: usize = 128;
@@ -236,13 +235,11 @@ impl Session {
         }
 
         let mut rec_producers: Vec<HeapProd<f32>> = Vec::new();
-        let mut mon_buffers: Vec<Arc<Mutex<Vec<f32>>>> = Vec::new();
         let mut input_channels: Vec<Option<u16>> = Vec::new();
 
         for track in &mut self.tracks {
             if let Some(prod) = track.take_recording_producer() {
                 rec_producers.push(prod);
-                mon_buffers.push(track.monitor_buffer_handle());
                 input_channels.push(track.input_channel);
             }
         }
@@ -254,10 +251,9 @@ impl Session {
             let ch = channels as usize;
             let num_frames = data.len() / ch;
 
-            // Route input to each track's recording buffer and monitor display
-            for (i, (prod, mon)) in rec_producers.iter_mut().zip(mon_buffers.iter()).enumerate() {
+            // Route input to each track's recording buffer
+            for (i, prod) in rec_producers.iter_mut().enumerate() {
                 let samples = extract_channel(data, ch, input_channels[i]);
-                update_monitor_buffer(mon, &samples);
                 prod.push_slice(&samples);
             }
 
@@ -339,15 +335,10 @@ impl Session {
         let channels = config.channels;
         config.buffer_size = BufferSize::Fixed(INPUT_BUFFER_FRAMES);
 
-        let mut mon_buffers: Vec<Arc<Mutex<Vec<f32>>>> = Vec::new();
-        let mut input_channels: Vec<Option<u16>> = Vec::new();
-
-        for track in &self.tracks {
-            if track.is_armed() && track.monitoring {
-                mon_buffers.push(track.monitor_buffer_handle());
-                input_channels.push(track.input_channel);
-            }
-        }
+        let input_channels: Vec<Option<u16>> = self.tracks.iter()
+            .filter(|t| t.is_armed() && t.monitoring)
+            .map(|t| t.input_channel)
+            .collect();
 
         let monitor_ring = HeapRb::<f32>::new(MONITOR_RING_BUFFER_SIZE);
         let (mut monitor_producer, monitor_consumer) = monitor_ring.split();
@@ -355,12 +346,6 @@ impl Session {
         let input_data_fn = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             let ch = channels as usize;
             let num_frames = data.len() / ch;
-
-            // Route input to each track's monitor display
-            for (i, mon) in mon_buffers.iter().enumerate() {
-                let samples = extract_channel(data, ch, input_channels[i]);
-                update_monitor_buffer(mon, &samples);
-            }
 
             // Mix selected channels for headphone output
             for frame in 0..num_frames {

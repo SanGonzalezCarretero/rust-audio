@@ -7,11 +7,9 @@ use crate::wav::WavFile;
 use ringbuf::HeapProd;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex, RwLock,
+    Arc, RwLock,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
-
-const MONITOR_BUFFER_SAMPLES: usize = 4800; // ~100ms @ 48kHz for UI visualization
 
 pub const LATENCY_MS: f32 = 10.0;
 
@@ -81,9 +79,6 @@ pub struct Track {
     // FX chain
     pub fx_chain: Vec<EffectInstance>,
 
-    // Monitoring buffer - for live display visualization
-    pub monitor_buffer: Arc<Mutex<Vec<f32>>>,
-
     // Playback data (recorded or loaded)
     pub clips: Vec<Clip>,
     pub recording_start_position: u64,
@@ -114,7 +109,6 @@ impl Default for Track {
             monitoring: false,
             state: TrackState::Idle,
             fx_chain: vec![],
-            monitor_buffer: Arc::new(Mutex::new(vec![0.0; MONITOR_BUFFER_SAMPLES])),
             clips: Vec::new(),
             recording_start_position: 0,
             volume: 1.0,
@@ -222,9 +216,3 @@ fn downsample_bipolar(samples: &[f32], chunk_size: usize, exact_chunks: bool) ->
         .collect()
 }
 
-pub fn update_monitor_buffer(buffer: &Mutex<Vec<f32>>, data: &[f32]) {
-    if let Ok(mut buf) = buffer.try_lock() {
-        buf.clear();
-        buf.extend_from_slice(data);
-    }
-}

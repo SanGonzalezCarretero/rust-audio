@@ -9,7 +9,7 @@ use ringbuf::{
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Mutex, RwLock,
+    Arc, RwLock,
 };
 
 impl Track {
@@ -121,11 +121,6 @@ impl Track {
     /// Take ownership of the recording ring buffer producer (moved into the audio callback).
     pub fn take_recording_producer(&mut self) -> Option<HeapProd<f32>> {
         self.recording_producer.take()
-    }
-
-    /// Get a clone of the monitor buffer Arc.
-    pub fn monitor_buffer_handle(&self) -> Arc<Mutex<Vec<f32>>> {
-        Arc::clone(&self.monitor_buffer)
     }
 
     pub fn stop_recording(&mut self) -> Result<(), Box<dyn std::error::Error>> {
