@@ -1,4 +1,4 @@
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use std::time::Duration;
 
 use super::audio_preferences_screen::AudioPreferencesScreen;
@@ -59,6 +59,12 @@ impl AppEventHandler {
 
     fn handle_user_input(app: &mut App) -> Result<bool, Box<dyn std::error::Error>> {
         if let Event::Key(key) = event::read()? {
+            // Ignore key release events to avoid duplicate handling on terminals
+            // that emit both press and release for a single keystroke.
+            if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+                return Ok(false);
+            }
+
             // Ctrl+S: save project (only in DAW screen)
             if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
                 if matches!(app.screen, Screen::Daw { .. }) {
